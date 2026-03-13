@@ -217,9 +217,33 @@ body {
 }
 
 .empty-state {
-  padding: 1.5rem 0 0.5rem;
+  padding: 1.7rem 0 0.5rem;
   display: grid;
-  gap: 0.9rem;
+  gap: 1.1rem;
+  justify-items: start;
+}
+
+.empty-state-note {
+  width: min(48rem, 100%);
+  display: grid;
+  gap: 1.35rem;
+  color: rgba(30, 43, 33, 0.68);
+  line-height: 1.35;
+  margin-bottom: 0.8rem;
+}
+
+.empty-state-note-group {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.empty-state-note p {
+  margin: 0;
+}
+
+.empty-state-prompts {
+  display: grid;
+  gap: 0.6rem;
   justify-items: start;
 }
 
@@ -227,7 +251,7 @@ body {
   border: 1px solid rgba(30, 43, 33, 0.12);
   border-radius: 999px;
   padding: 0.7rem 1rem;
-  background: rgba(255, 252, 245, 0.58);
+  background: rgba(35, 66, 51, 0.16);
   color: rgba(30, 43, 33, 0.76);
   font: inherit;
   text-align: left;
@@ -237,7 +261,7 @@ body {
 
 .empty-state-prompt:hover {
   color: #1e2b21;
-  background: rgba(255, 252, 245, 0.86);
+  background: rgba(35, 66, 51, 0.22);
   border-color: rgba(30, 43, 33, 0.18);
   transform: translateY(-1px);
 }
@@ -667,7 +691,7 @@ body {
 }
 
 .app-footer {
-  padding: 0.55rem 0 0;
+  padding: 0.55rem 0 0.35rem;
   background: transparent;
   flex-shrink: 0;
 }
@@ -683,7 +707,7 @@ body {
   align-items: center;
   background: rgba(255, 255, 255, 0.92);
   border-radius: 22px;
-  box-shadow: 0 0 18px rgba(47, 54, 45, 0.12);
+  box-shadow: 0 0 10px rgba(47, 54, 45, 0.12);
   padding: 0.55rem 0.45rem;
 }
 

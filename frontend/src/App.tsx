@@ -27,8 +27,8 @@ const API_BASE = "";
 const STORAGE_KEY = "abs-analyst-session";
 const EXAMPLE_PROMPTS = [
   "What data do you have access to?",
-  "Which industries have the highest job vacancies?",
   "Show me a chart of Manufacturing jobs over the last 2 decades?",
+  "Which states increased their investment the most in the last 5 years?",
 ];
 
 function createConversationId() {
@@ -1253,16 +1253,28 @@ function App() {
         <section className="chat-panel">
           {messages.length === 0 && (
             <div className="empty-state">
-              {EXAMPLE_PROMPTS.map((prompt) => (
-                <button
-                  key={prompt}
-                  type="button"
-                  className="empty-state-prompt"
-                  onClick={() => void submitPrompt(prompt)}
-                >
-                  {prompt}
-                </button>
-              ))}
+              <div className="empty-state-note">
+                <div className="empty-state-note-group">
+                  <p>This system works from a curated shortlist of ABS data rather than the full API.</p>
+                  <p>This keeps it faster and more reliable. The shortlist is growing over time.</p>
+                </div>
+                <div className="empty-state-note-group">
+                  <p>It handles targeted data retrieval well. Complex layered questions can still trip it up.</p>
+                  <p>For multi-dataset calculations, break tasks down and guide it step by step for better performance.</p>
+                </div>
+              </div>
+              <div className="empty-state-prompts">
+                {EXAMPLE_PROMPTS.map((prompt) => (
+                  <button
+                    key={prompt}
+                    type="button"
+                    className="empty-state-prompt"
+                    onClick={() => void submitPrompt(prompt)}
+                  >
+                    {prompt}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 

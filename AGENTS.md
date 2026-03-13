@@ -128,7 +128,8 @@ Required process:
 1. Run the live wildcard retrieval for the measure.
 2. Inspect the returned series keys or MCP availability output.
 3. Identify which dimensions actually vary in published data and which are fixed.
-4. Update the measure description to describe observed availability only.
+4. Check whether important dimension combinations are constrained, even when the broad dimension appears available.
+5. Update the measure description to describe observed availability only.
 
 At minimum, check and describe:
 
@@ -137,9 +138,11 @@ At minimum, check and describe:
 - which adjustment types are actually present
 - whether the data is quarterly, monthly, or another frequency
 - whether the retrieval is original-only, seasonally adjusted/trend-only, or mixed
+- whether broad availability hides narrower combination limits, for example state data existing only for totals or only for some sector variants
 
 Do not describe dimensions as available just because they exist in metadata or codelists.
 If metadata suggests broader coverage but the published series are narrower, say that explicitly in the dataset or measure description.
+If a dimension is only available for some combinations, say that explicitly in the description instead of implying the dimension is broadly usable.
 
 ## Mandatory backend compatibility check for new curated schemas
 
@@ -225,9 +228,10 @@ When curating a new ABS dataset, use this sequence:
 5. Build a wildcard template that fixes the anchor and leaves the remaining key positions open.
 6. Run the live wildcard retrieval for each anchored item.
 7. Inspect what the published data literally returns.
-8. Write the catalog and structure descriptions from observed availability, not from metadata alone.
-9. Verify the backend can actually execute that template shape.
-10. Only then treat the dataset as curated.
+8. Inspect whether important dimension combinations are narrower than the broad wildcard result.
+9. Write the catalog and structure descriptions from observed availability, not from metadata alone.
+10. Verify the backend can actually execute that template shape.
+11. Only then treat the dataset as curated.
 
 ## How to choose the anchor
 
@@ -271,12 +275,27 @@ At minimum, descriptions should say what is literally available for the anchored
 - sector coverage actually returned
 - adjustment types actually returned
 - measure forms actually returned, for example current prices, chain volume, percentage changes, contributions
+- important combination limits, when a dimension is available only for some variants
 
 Descriptions should be written to support questions like:
 
 - can this dataset be compared to another one?
 - at what common level can they be aligned?
 - is the item TOTAL only, divisions only, subdivisions, states, or something else?
+
+Descriptions should stay compact.
+Do not try to list every returned series key or every code combination.
+Instead, state the broad observed availability first, then add one short caveat sentence when combinations are narrower than they first appear.
+
+Preferred pattern:
+
+- one sentence on the broad observed availability
+- one sentence on the most important combination caveat
+- one sentence on frequency or adjustment availability if needed
+
+Example:
+
+- "State-level data exists. Sector variants exist, but not all sector variants are available by state. Quarterly only."
 
 ## Planning rule for derived analysis
 
