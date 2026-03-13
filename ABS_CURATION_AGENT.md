@@ -9,8 +9,8 @@ Extend the curated ABS layer carefully.
 Do not guess a dataset and do not write to the human-approved curated files.
 Use the `_AI` overlay files only:
 
-- `mcp-server-abs/CURATED_ABS_CATALOG_AI.txt`
-- `mcp-server-abs/CURATED_ABS_STRUCTURES_AI.txt`
+- `CURATED_ABS_CATALOG_AI.txt`
+- `CURATED_ABS_STRUCTURES_AI.txt`
 
 ## Approval flow
 

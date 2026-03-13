@@ -6,8 +6,8 @@ from typing import Any, Dict, List
 
 
 PROMPT_PATH = Path(__file__).resolve().parents[3] / "HARNESS_SYSTEM_PROMPT.txt"
-SOUL_PATH = Path(__file__).resolve().parents[4] / "SOUL.md"
-CURATION_GUIDE_PATH = Path(__file__).resolve().parents[4] / "ABS_CURATION_AGENT.md"
+SOUL_PATH = Path(__file__).resolve().parents[3] / "SOUL.md"
+CURATION_GUIDE_PATH = Path(__file__).resolve().parents[3] / "ABS_CURATION_AGENT.md"
 
 _PROMPT_CACHE = ""
 _PROMPT_CACHE_KEY = ""

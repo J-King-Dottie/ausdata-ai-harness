@@ -90,7 +90,7 @@ def main() -> int:
     artifact_map = payload.get("artifacts") or {}
     output_dir = Path(payload["output_dir"])
     output_dir.mkdir(parents=True, exist_ok=True)
-    soul_path = Path(__file__).resolve().parents[4] / "SOUL.md"
+    soul_path = Path(__file__).resolve().parents[3] / "SOUL.md"
     curated_base_dir = Path(__file__).resolve().parents[3]
     curated_catalog_path = curated_base_dir / "CURATED_ABS_CATALOG.txt"
     curated_structures_path = curated_base_dir / "CURATED_ABS_STRUCTURES.txt"

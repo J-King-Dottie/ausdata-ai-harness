@@ -11,8 +11,8 @@ The goal is to give it a short list of known working query templates.
 
 There are two source-of-truth files:
 
-- `/mnt/c/Users/jorda/OneDrive/Documents/Dottie/abs-mcp/mcp-server-abs/CURATED_ABS_CATALOG.txt`
-- `/mnt/c/Users/jorda/OneDrive/Documents/Dottie/abs-mcp/mcp-server-abs/CURATED_ABS_STRUCTURES.txt`
+- `/mnt/c/Users/jorda/OneDrive/Documents/Dottie/abs-mcp/CURATED_ABS_CATALOG.txt`
+- `/mnt/c/Users/jorda/OneDrive/Documents/Dottie/abs-mcp/CURATED_ABS_STRUCTURES.txt`
 
 ### Catalog file
 
@@ -303,11 +303,11 @@ The long-term goal can be:
 Recommended safety structure:
 
 - human-approved base:
-  - `/mnt/c/Users/jorda/OneDrive/Documents/Dottie/abs-mcp/mcp-server-abs/CURATED_ABS_CATALOG.txt`
-  - `/mnt/c/Users/jorda/OneDrive/Documents/Dottie/abs-mcp/mcp-server-abs/CURATED_ABS_STRUCTURES.txt`
+  - `/mnt/c/Users/jorda/OneDrive/Documents/Dottie/abs-mcp/CURATED_ABS_CATALOG.txt`
+  - `/mnt/c/Users/jorda/OneDrive/Documents/Dottie/abs-mcp/CURATED_ABS_STRUCTURES.txt`
 - AI-created overlay:
-  - `/mnt/c/Users/jorda/OneDrive/Documents/Dottie/abs-mcp/mcp-server-abs/CURATED_ABS_CATALOG_AI.txt`
-  - `/mnt/c/Users/jorda/OneDrive/Documents/Dottie/abs-mcp/mcp-server-abs/CURATED_ABS_STRUCTURES_AI.txt`
+  - `/mnt/c/Users/jorda/OneDrive/Documents/Dottie/abs-mcp/CURATED_ABS_CATALOG_AI.txt`
+  - `/mnt/c/Users/jorda/OneDrive/Documents/Dottie/abs-mcp/CURATED_ABS_STRUCTURES_AI.txt`
 
 Recommended behavior:
 
