@@ -385,11 +385,11 @@ body {
 }
 
 .nisaba-loader {
-  width: 1.9rem;
-  height: 1.45rem;
+  width: 1.8rem;
+  height: 1.35rem;
   display: block;
   overflow: visible;
-  color: inherit;
+  color: #7d8b80;
 }
 
 .nisaba-loader-group {
@@ -400,7 +400,7 @@ body {
 .nisaba-stroke {
   fill: none;
   stroke: currentColor;
-  stroke-width: 2.4;
+  stroke-width: 4.4;
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-dasharray: 1;
@@ -431,22 +431,6 @@ body {
   animation-delay: 0.87s;
 }
 
-.nisaba-stroke-6 {
-  animation-delay: 1.02s;
-}
-
-.nisaba-stroke-7 {
-  animation-delay: 1.17s;
-}
-
-.nisaba-stroke-8 {
-  animation-delay: 1.32s;
-}
-
-.nisaba-stroke-9 {
-  animation-delay: 1.47s;
-}
-
 .nisaba-wedge {
   color: inherit;
 }
@@ -454,7 +438,7 @@ body {
 .nisaba-wedge-line {
   fill: none;
   stroke: currentColor;
-  stroke-width: 2.1;
+  stroke-width: 4.1;
   stroke-linecap: round;
   stroke-dasharray: 1;
   stroke-dashoffset: 1;
@@ -485,26 +469,6 @@ body {
 .nisaba-stroke-5 .nisaba-wedge-line,
 .nisaba-stroke-5 .nisaba-wedge-press {
   animation-delay: 0.87s;
-}
-
-.nisaba-stroke-6 .nisaba-wedge-line,
-.nisaba-stroke-6 .nisaba-wedge-press {
-  animation-delay: 1.02s;
-}
-
-.nisaba-stroke-7 .nisaba-wedge-line,
-.nisaba-stroke-7 .nisaba-wedge-press {
-  animation-delay: 1.17s;
-}
-
-.nisaba-stroke-8 .nisaba-wedge-line,
-.nisaba-stroke-8 .nisaba-wedge-press {
-  animation-delay: 1.32s;
-}
-
-.nisaba-stroke-9 .nisaba-wedge-line,
-.nisaba-stroke-9 .nisaba-wedge-press {
-  animation-delay: 1.47s;
 }
 
 .rich-content {

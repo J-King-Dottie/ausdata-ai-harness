@@ -1953,6 +1953,10 @@ def generate_response(
                         status_callback("The dataset has been curated into the AI overlay and is ready to use.")
                         return followup_markdown
                     else:
+                        # A normal approval plan is the gate for broader raw ABS discovery.
+                        # Clarification prompts are handled above via await_user_input, and
+                        # post-curation confirmations are handled in the dedicated branch.
+                        plan_context["allow_raw_discovery"] = True
                         state.pending_plan = {
                             "status": "approved",
                             "plan_markdown": str(pending_plan.get("plan_markdown") or "").strip(),

@@ -551,45 +551,29 @@ function NisabaLoader() {
       <g className="nisaba-loader-group">
         <rect
           className="nisaba-stroke nisaba-stroke-1"
-          x="10"
-          y="8"
-          width="60"
-          height="44"
-          rx="12"
+          x="8"
+          y="7"
+          width="64"
+          height="46"
+          rx="10"
           pathLength={1}
         />
 
         <g className="nisaba-wedge nisaba-stroke-2">
-          <line className="nisaba-wedge-line" x1="22" y1="22" x2="33" y2="18" pathLength={1} />
-          <path className="nisaba-wedge-press" d="M18 23 L22 20 L22 26 Z" />
+          <line className="nisaba-wedge-line" x1="26" y1="24" x2="39" y2="19" pathLength={1} />
+          <path className="nisaba-wedge-press" d="M19 25 L26 19 L26 29 Z" />
         </g>
         <g className="nisaba-wedge nisaba-stroke-3">
-          <line className="nisaba-wedge-line" x1="38" y1="22" x2="50" y2="18" pathLength={1} />
-          <path className="nisaba-wedge-press" d="M34 23 L38 20 L38 26 Z" />
+          <line className="nisaba-wedge-line" x1="45" y1="24" x2="58" y2="19" pathLength={1} />
+          <path className="nisaba-wedge-press" d="M38 25 L45 19 L45 29 Z" />
         </g>
         <g className="nisaba-wedge nisaba-stroke-4">
-          <line className="nisaba-wedge-line" x1="54" y1="22" x2="64" y2="18" pathLength={1} />
-          <path className="nisaba-wedge-press" d="M50 23 L54 20 L54 26 Z" />
+          <line className="nisaba-wedge-line" x1="33" y1="40" x2="46" y2="35" pathLength={1} />
+          <path className="nisaba-wedge-press" d="M26 41 L33 35 L33 45 Z" />
         </g>
         <g className="nisaba-wedge nisaba-stroke-5">
-          <line className="nisaba-wedge-line" x1="24" y1="32" x2="36" y2="28" pathLength={1} />
-          <path className="nisaba-wedge-press" d="M20 33 L24 30 L24 36 Z" />
-        </g>
-        <g className="nisaba-wedge nisaba-stroke-6">
-          <line className="nisaba-wedge-line" x1="40" y1="32" x2="52" y2="28" pathLength={1} />
-          <path className="nisaba-wedge-press" d="M36 33 L40 30 L40 36 Z" />
-        </g>
-        <g className="nisaba-wedge nisaba-stroke-7">
-          <line className="nisaba-wedge-line" x1="56" y1="32" x2="66" y2="28" pathLength={1} />
-          <path className="nisaba-wedge-press" d="M52 33 L56 30 L56 36 Z" />
-        </g>
-        <g className="nisaba-wedge nisaba-stroke-8">
-          <line className="nisaba-wedge-line" x1="30" y1="42" x2="42" y2="38" pathLength={1} />
-          <path className="nisaba-wedge-press" d="M26 43 L30 40 L30 46 Z" />
-        </g>
-        <g className="nisaba-wedge nisaba-stroke-9">
-          <line className="nisaba-wedge-line" x1="46" y1="42" x2="58" y2="38" pathLength={1} />
-          <path className="nisaba-wedge-press" d="M42 43 L46 40 L46 46 Z" />
+          <line className="nisaba-wedge-line" x1="52" y1="40" x2="65" y2="35" pathLength={1} />
+          <path className="nisaba-wedge-press" d="M45 41 L52 35 L52 45 Z" />
         </g>
       </g>
     </svg>
