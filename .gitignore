@@ -25,6 +25,7 @@ frontend/dist/
 # Runtime / local state
 runtime/
 *.log
+AWS_DEPLOY_PRIVATE.md
 
 # Editor
 .idea/

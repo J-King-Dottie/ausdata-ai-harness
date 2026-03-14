@@ -19,7 +19,7 @@ body {
   --scrollbar-comp: 12px;
   margin: 0;
   overflow: hidden;
-  padding: var(--page-gutter) 0 var(--page-gutter) var(--page-gutter);
+  padding: var(--page-gutter);
   background-color: #f7f3ea;
 }
 
@@ -691,7 +691,7 @@ body {
 }
 
 .app-footer {
-  padding: 0.55rem 0 0.35rem;
+  padding: 0.55rem 0 0.75rem;
   background: transparent;
   flex-shrink: 0;
 }
@@ -920,7 +920,7 @@ body {
   }
 
   .app-footer {
-    padding: 0.5rem 0 0;
+    padding: 0.5rem 0 0.55rem;
   }
 
   .bubble,
@@ -939,18 +939,21 @@ body {
   }
 
   .app-header {
-    flex-direction: column;
-    align-items: stretch;
+    flex-direction: row;
+    align-items: flex-start;
+    justify-content: space-between;
     gap: 0.55rem;
     padding: 0 0 0.28rem;
   }
 
   .title-group {
-    width: 100%;
+    flex: 1 1 auto;
+    min-width: 0;
   }
 
   .product-title {
-    width: 100%;
+    width: auto;
+    min-width: 0;
   }
 
   .product-title-text {
@@ -966,9 +969,10 @@ body {
   }
 
   .header-controls {
-    width: 100%;
+    flex: 0 0 auto;
     justify-content: flex-end;
     gap: 0.45rem;
+    padding-right: 0;
   }
 
   .app-main {
@@ -976,6 +980,7 @@ body {
   }
 
   .chat-panel {
+    transform: none;
     padding-top: 0.25rem;
   }
 
@@ -1013,7 +1018,7 @@ body {
   }
 
   .app-footer {
-    padding: 0.45rem 0 0;
+    padding: 0.45rem 0 0.65rem;
   }
 
   .composer-input-shell {

@@ -51,6 +51,7 @@ SAFE_BUILTINS = {
     "max": max,
     "min": min,
     "next": next,
+    "None": None,
     "print": print,
     "range": range,
     "repr": repr,
@@ -76,6 +77,20 @@ def _time_sort_key(value: Any) -> tuple[int, ...]:
     text = str(value or "").strip()
     parts = [int(part) for part in _TIME_PART_RE.findall(text)]
     return tuple(parts) if parts else (-1,)
+
+
+def _ensure_row_mapping(row: Any) -> Dict[str, Any] | None:
+    return row if isinstance(row, dict) else None
+
+
+def _row_matches(row: Any, criteria: Dict[str, Any]) -> bool:
+    typed_row = _ensure_row_mapping(row)
+    if typed_row is None:
+        return False
+    for key, expected in criteria.items():
+        if typed_row.get(key) != expected:
+            return False
+    return True
 
 
 def main() -> int:
@@ -219,7 +234,12 @@ def main() -> int:
         }
 
     def sort_rows_by_time(rows, descending: bool = False):
-        return sorted(rows, key=lambda row: _time_sort_key(row.get("TIME_PERIOD_code") or row.get("TIME_PERIOD")), reverse=descending)
+        typed_rows = [row for row in rows if isinstance(row, dict)]
+        return sorted(
+            typed_rows,
+            key=lambda row: _time_sort_key(row.get("TIME_PERIOD_code") or row.get("TIME_PERIOD")),
+            reverse=descending,
+        )
 
     def latest_row(rows):
         ordered = sort_rows_by_time(rows, descending=True)
@@ -230,6 +250,8 @@ def main() -> int:
         return ordered[0] if ordered else None
 
     def numeric_change(first_value: Any, last_value: Any):
+        if first_value is None or last_value is None:
+            raise ValueError("numeric_change requires two non-null numeric values")
         first_num = float(first_value)
         last_num = float(last_value)
         absolute_change = last_num - first_num
@@ -242,6 +264,35 @@ def main() -> int:
             "absolute_change": absolute_change,
             "percent_change": percent_change,
         }
+
+    def filter_rows(rows, **criteria):
+        return [row for row in rows if _row_matches(row, criteria)]
+
+    def find_row(rows, **criteria):
+        for row in rows:
+            if _row_matches(row, criteria):
+                return row
+        return None
+
+    def require_row(rows, **criteria):
+        row = find_row(rows, **criteria)
+        if row is None:
+            criteria_text = ", ".join(f"{key}={value!r}" for key, value in criteria.items()) or "<no criteria>"
+            raise ValueError(f"No row matched: {criteria_text}")
+        return row
+
+    def safe_get(obj: Any, key: str, default: Any = None):
+        if not isinstance(obj, dict):
+            return default
+        return obj.get(key, default)
+
+    def require_fields(obj: Any, *fields: str):
+        if not isinstance(obj, dict):
+            raise TypeError("require_fields expects a dict")
+        missing = [field for field in fields if field not in obj or obj.get(field) is None]
+        if missing:
+            raise ValueError(f"Missing required fields: {', '.join(missing)}")
+        return obj
 
     def load_soul_md():
         if not soul_path.exists():
@@ -384,6 +435,8 @@ def main() -> int:
     exec_env: Dict[str, Any] = {
         "__builtins__": SAFE_BUILTINS,
         "earliest_row": earliest_row,
+        "filter_rows": filter_rows,
+        "find_row": find_row,
         "get_resolved_dataset": get_resolved_dataset,
         "get_series_rows": get_series_rows,
         "inspect_artifact": inspect_artifact,
@@ -397,8 +450,11 @@ def main() -> int:
         "load_artifact": load_artifact,
         "load_soul_md": load_soul_md,
         "numeric_change": numeric_change,
+        "require_fields": require_fields,
+        "require_row": require_row,
         "save_json": save_json,
         "save_text": save_text,
+        "safe_get": safe_get,
         "result": None,
         "sort_rows_by_time": sort_rows_by_time,
         "upsert_curated_dataset_ai": upsert_curated_dataset_ai,

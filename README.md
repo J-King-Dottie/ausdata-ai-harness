@@ -1,30 +1,16 @@
 # Nisaba
 
-Nisaba is an agentic economic analysis harness for the ABS.
+Nisaba is an agentic economic analysis harness for the ABS API.
 
-The point of this repo is not just to expose the ABS through MCP. The point is to wrap that underlying server with a harness that behaves more like a real economic analyst:
+It is built around a simple production constraint: the agent does not roam the full ABS API blindly at runtime. Instead, it works from a curated, verified layer of datasets and query templates so retrieval stays reliable and analysis stays grounded.
 
-- a curated ABS catalog and structure layer so the agent starts from known working dataset patterns instead of inventing brittle API calls
-- a planning loop that reasons about what data is needed before retrieving it
-- a Python sandbox for filtering, reshaping, joining, calculating, checking, and preparing chart-ready data
-- a frontend that renders conversational answers, tables, and charts
-- an economic-analysis prompt layer that knows the difference between time series, panel data, and matrix-style tables such as supply-use tables
+Rather than exposing ABS through MCP and hoping the model invents valid queries, Nisaba wraps that server with a planning loop, curated retrieval layer, Python analysis sandbox, and frontend so it behaves more like a real economic analyst.
 
-This makes it much more than a raw model sitting on top of the ABS API. Nisaba is designed to think about the structure of economic data, work out what needs to be retrieved, and then do the analysis properly.
+In practice, Nisaba can retrieve curated ABS data, compare datasets, calculate derived metrics, handle matrix-style tables, and generate charts and tables when they help explain the answer.
 
-In practice, Nisaba can:
-
-- retrieve curated ABS data directly
-- inspect and compare multiple datasets
-- calculate derived metrics like ratios, rankings, and per-worker measures
-- handle matrix tables with explicit row/column logic
-- generate charts and tables automatically when they help explain the answer
-
-Underneath that, the repo still includes the raw MCP-style ABS server layer. But the harness is the main product, and the MCP server is the substrate it sits on.
+The raw MCP-style ABS server is still here, but it is the substrate rather than the product.
 
 The stack includes:
-
-- GPT-5.4-driven orchestration
 - curated ABS retrieval logic
 - web-search support for broader context when needed
 - one Python sandbox tool
@@ -96,7 +82,9 @@ The harness prefers the curated layer first:
 
 These files encode tested dataset descriptions, query templates, and guidance about what is literally available in the returned ABS data.
 
-That curated layer is what makes the system dependable. Instead of asking the model to infer arbitrary ABS dimensions and codes, it starts from validated patterns and then uses sandbox analysis to narrow, combine, and interpret the results.
+That curated layer is what makes the system dependable. In agentic production systems, this is a known grounding pattern: keep the runtime surface small, verified, and semantically clear. Instead of asking the model to infer arbitrary ABS dimensions and codes, Nisaba starts from validated patterns and then uses sandbox analysis to narrow, combine, and interpret the results.
+
+The alternative vision, where the agent ranges freely across the full ABS API, is possible in principle but much less reliable in practice. It needs broader discovery, more structure inspection, more recovery loops, and still has a lower reliability ceiling. Nisaba takes the pragmatic path: do the hard discovery work offline, encode it in the curated layer, and let the runtime agent stay fast, cautious, and dependable.
 
 ## Notes
 

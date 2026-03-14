@@ -1778,6 +1778,117 @@ def _record_loop_feedback(
     state.loop_history.append(entry)
 
 
+def _normalize_sandbox_code(code: Any) -> str:
+    if not isinstance(code, str):
+        return ""
+    normalized_lines = []
+    for raw_line in code.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        normalized_lines.append(line)
+    return re.sub(r"\s+", " ", "\n".join(normalized_lines)).strip()
+
+
+def _recent_failed_sandbox_entry(state) -> Optional[Dict[str, Any]]:
+    for item in reversed(state.loop_history):
+        if not isinstance(item, dict):
+            continue
+        step = item.get("step") if isinstance(item.get("step"), dict) else {}
+        if str(step.get("id") or "").strip() != "use_sandbox_tool":
+            continue
+        result_data = item.get("result_data") if isinstance(item.get("result_data"), dict) else {}
+        if str(result_data.get("kind") or "").strip() != "tool_error":
+            continue
+        if str(result_data.get("tool_step_id") or "").strip() != "use_sandbox_tool":
+            continue
+        return item
+    return None
+
+
+def _classify_tool_failure(step_id: str, error_text: str, tool_input: Dict[str, Any]) -> Dict[str, Any]:
+    clean_error = str(error_text or "").strip()
+    tool_name = {
+        "use_abs_data_tool": "abs_data_tool",
+        "use_web_search_tool": "web_search_tool",
+        "use_sandbox_tool": "sandbox_tool",
+    }.get(step_id, "")
+
+    result = {
+        "kind": "tool_error",
+        "tool_step_id": step_id,
+        "tool_name": tool_name,
+        "error": clean_error[:4000],
+    }
+
+    if step_id != "use_sandbox_tool":
+        result["retry_guidance"] = "Choose a different valid step or adjust the tool input to address the reported error."
+        return result
+
+    sandbox_code = str(tool_input.get("code") or "")
+    result["sandbox_code_preview"] = sandbox_code[:600]
+    result["sandbox_code_normalized"] = _normalize_sandbox_code(sandbox_code)[:2000]
+
+    lowered = clean_error.lower()
+    if "nonetype' object is not subscriptable" in lowered:
+        result["error_class"] = "missing_match_or_null_lookup"
+        result["retry_guidance"] = (
+            "A sandbox lookup returned None and the code indexed into it. "
+            "Do not reuse the same lookup chain. Inspect rows first, then use find_row/safe_get or require_row/require_fields."
+        )
+    elif "no row matched:" in lowered:
+        result["error_class"] = "missing_row"
+        result["retry_guidance"] = (
+            "The requested row was not present. Inspect available rows and codes before retrying, "
+            "or retrieve data at a compatible level instead of assuming the join target exists."
+        )
+    elif "missing required fields:" in lowered:
+        result["error_class"] = "missing_fields"
+        result["retry_guidance"] = (
+            "The target row exists but required fields were absent or null. "
+            "Inspect schema/rows first and adjust the calculation to fields that are actually populated."
+        )
+    elif "numeric_change requires two non-null numeric values" in lowered:
+        result["error_class"] = "missing_numeric_inputs"
+        result["retry_guidance"] = (
+            "The calculation attempted to use null numeric values. "
+            "Verify the numerator and denominator exist before computing the metric."
+        )
+    elif "timed out" in lowered or "timeout" in lowered:
+        result["error_class"] = "sandbox_timeout"
+        result["retry_guidance"] = (
+            "The sandbox step was too heavy. Retry with a smaller inspection step or simplify the transformation before joining artifacts."
+        )
+    else:
+        result["error_class"] = "sandbox_generic"
+        result["retry_guidance"] = (
+            "Do not repeat the same sandbox code. Inspect the artifact shape again and choose a narrower or safer analysis step."
+        )
+    return result
+
+
+def _sandbox_retry_conflict(state, tool_input: Dict[str, Any]) -> Optional[str]:
+    recent_failure = _recent_failed_sandbox_entry(state)
+    if recent_failure is None:
+        return None
+
+    prior_data = recent_failure.get("result_data") if isinstance(recent_failure.get("result_data"), dict) else {}
+    prior_normalized = str(prior_data.get("sandbox_code_normalized") or "").strip()
+    current_normalized = _normalize_sandbox_code(tool_input.get("code"))
+    if not prior_normalized or not current_normalized:
+        return None
+
+    if prior_normalized == current_normalized:
+        guidance = str(prior_data.get("retry_guidance") or "").strip()
+        return (
+            "The proposed sandbox step is materially the same as the most recent failed sandbox attempt. "
+            "Choose a different approach instead of retrying identical code. "
+            f"Previous guidance: {guidance}"
+        ).strip()
+
+    return None
+
+
 def _count_recent_recovery_failures(state) -> int:
     count = 0
     for item in reversed(state.loop_history):
@@ -2119,6 +2230,10 @@ def generate_response(
                 return final_answer
 
             try:
+                if step["id"] == "use_sandbox_tool":
+                    retry_conflict = _sandbox_retry_conflict(state, model_output["tool_input"])
+                    if retry_conflict:
+                        raise RuntimeError(retry_conflict)
                 if step["id"] == "use_abs_data_tool":
                     tool_result = _execute_abs_data_tool(
                         tool_input=model_output["tool_input"],
@@ -2151,11 +2266,20 @@ def generate_response(
                     "Tool execution failed. Adjust the next step using this feedback.\n"
                     f"Error: {str(exc)}"
                 )
+                failure_data = _classify_tool_failure(
+                    str(step.get("id") or "").strip(),
+                    str(exc),
+                    model_output.get("tool_input") if isinstance(model_output, dict) else {},
+                )
+                retry_guidance = str(failure_data.get("retry_guidance") or "").strip()
+                if retry_guidance:
+                    result_summary += f"\nRecovery guidance: {retry_guidance}"
                 _record_loop_feedback(
                     state,
                     step=step,
                     progress_note=progress_note,
                     result_summary=result_summary,
+                    result_data=failure_data,
                 )
                 store.save(state)
                 status_callback("That step failed. Trying a different approach.")

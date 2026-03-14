@@ -109,9 +109,14 @@ Sandbox helpers:
 - `get_resolved_dataset(artifact_id)`
 - `get_series_rows(artifact_id)`
 - `inspect_artifact_schema(artifact_id)`
+- `filter_rows(rows, **criteria)`
+- `find_row(rows, **criteria)`
+- `require_row(rows, **criteria)`
 - `sort_rows_by_time(rows, descending=False)`
 - `latest_row(rows)`
 - `earliest_row(rows)`
+- `safe_get(obj, key, default=None)`
+- `require_fields(obj, *fields)`
 - `numeric_change(first_value, last_value)`
 - `save_json(name, data)`
 - `save_text(name, text)`
@@ -131,6 +136,10 @@ Sandbox rules:
 - If sandbox does not already contain what you need, return to `catalog`, `structure`, `retrieve`, or approved raw discovery as appropriate.
 - Inspect a new artifact before assuming field names.
 - For non-dataset artifacts, inspect top-level keys before indexing nested fields.
+- Treat helper outputs as nullable. `latest_row(...)`, `earliest_row(...)`, filtered row lookups, and nested dict access may return `None`.
+- Before using `row["field"]` or `obj["key"]`, first confirm the row/object exists and the key is present. If a match is missing, set `result` to a short diagnostic summary instead of throwing.
+- When combining artifacts, verify join keys and target rows exist on both sides before computing derived metrics.
+- Prefer `find_row(...)`, `require_row(...)`, `safe_get(...)`, and `require_fields(...)` over handwritten lookup chains.
 - Prefer the provided helpers over custom recursive walkers.
 - Set `result` when possible.
 - Use sandbox to prepare chart-ready data, not to render charts.
