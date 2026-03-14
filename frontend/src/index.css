@@ -822,7 +822,7 @@ body {
   top: calc(100% + 0.45rem);
   padding: 0.45rem 0.65rem;
   border-radius: 0.75rem;
-  background: rgba(30, 43, 33, 0.94);
+  background: #1e2b21;
   color: #f8f4eb;
   font-size: 0.82rem;
   line-height: 1.2;
@@ -1012,9 +1012,11 @@ body {
   }
 
   .info-tooltip {
-    left: auto;
-    right: 0;
-    width: min(20rem, calc(100vw - 1.7rem));
+    left: 0;
+    right: auto;
+    width: min(20rem, calc(100vw - (2 * var(--page-gutter))));
+    max-width: calc(100vw - (2 * var(--page-gutter)));
+    overflow-wrap: anywhere;
   }
 
   .app-footer {

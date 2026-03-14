@@ -109,14 +109,26 @@ Sandbox helpers:
 - `get_resolved_dataset(artifact_id)`
 - `get_series_rows(artifact_id)`
 - `inspect_artifact_schema(artifact_id)`
+- `distinct_values(rows, field, drop_none=True)`
+- `coerce_number(value, default=None)`
 - `filter_rows(rows, **criteria)`
 - `find_row(rows, **criteria)`
+- `get_numeric(row, field="value", default=None)`
 - `require_row(rows, **criteria)`
+- `index_rows(rows, *key_fields)`
+- `group_rows(rows, *key_fields)`
+- `join_rows(left_rows, right_rows, left_keys, right_keys=None, how="inner", right_prefix="right_")`
+- `numeric_fields(rows)`
 - `sort_rows_by_time(rows, descending=False)`
+- `sort_by_numeric(rows, field="value", descending=False, missing="last")`
+- `top_n_by_numeric(rows, field="value", n=5, descending=True)`
 - `latest_row(rows)`
 - `earliest_row(rows)`
+- `latest_common_period(*row_sets)`
 - `safe_get(obj, key, default=None)`
 - `require_fields(obj, *fields)`
+- `safe_ratio(numerator, denominator, default=None)`
+- `sum_values(rows, value_field="value")`
 - `numeric_change(first_value, last_value)`
 - `save_json(name, data)`
 - `save_text(name, text)`
@@ -139,8 +151,9 @@ Sandbox rules:
 - Treat helper outputs as nullable. `latest_row(...)`, `earliest_row(...)`, filtered row lookups, and nested dict access may return `None`.
 - Before using `row["field"]` or `obj["key"]`, first confirm the row/object exists and the key is present. If a match is missing, set `result` to a short diagnostic summary instead of throwing.
 - When combining artifacts, verify join keys and target rows exist on both sides before computing derived metrics.
-- Prefer `find_row(...)`, `require_row(...)`, `safe_get(...)`, and `require_fields(...)` over handwritten lookup chains.
+- Prefer `find_row(...)`, `require_row(...)`, `safe_get(...)`, `require_fields(...)`, `distinct_values(...)`, `index_rows(...)`, `group_rows(...)`, `join_rows(...)`, `coerce_number(...)`, `get_numeric(...)`, `sort_by_numeric(...)`, `top_n_by_numeric(...)`, `safe_ratio(...)`, `latest_common_period(...)`, and `sum_values(...)` over handwritten lookup chains, custom `uniq` functions, repeated full-table scans, or ad hoc descending sort lambdas.
 - Prefer the provided helpers over custom recursive walkers.
+- Do not use `key=lambda row: -...` for descending sorts over ABS rows. Use `sort_by_numeric(...)` or `top_n_by_numeric(...)`.
 - Set `result` when possible.
 - Use sandbox to prepare chart-ready data, not to render charts.
 - Do not use sandbox as a substitute for poor retrieval planning.

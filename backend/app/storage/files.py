@@ -16,6 +16,10 @@ class ConversationState:
     loop_history: List[Dict[str, Any]] = field(default_factory=list)
     artifacts: List[Dict[str, Any]] = field(default_factory=list)
     pending_plan: Dict[str, Any] | None = None
+    run_status: str = "idle"
+    latest_progress: str = ""
+    latest_error: str = ""
+    active_run_id: str | None = None
 
 
 class ConversationStore:
@@ -50,6 +54,10 @@ class ConversationStore:
             loop_history=list(raw.get("loop_history") or []),
             artifacts=list(raw.get("artifacts") or []),
             pending_plan=raw.get("pending_plan") if isinstance(raw.get("pending_plan"), dict) else None,
+            run_status=str(raw.get("run_status") or "idle"),
+            latest_progress=str(raw.get("latest_progress") or ""),
+            latest_error=str(raw.get("latest_error") or ""),
+            active_run_id=str(raw.get("active_run_id") or "").strip() or None,
         )
 
     def _save_to_disk(self, state: ConversationState) -> None:
@@ -60,6 +68,10 @@ class ConversationStore:
             "loop_history": state.loop_history,
             "artifacts": state.artifacts,
             "pending_plan": state.pending_plan,
+            "run_status": state.run_status,
+            "latest_progress": state.latest_progress,
+            "latest_error": state.latest_error,
+            "active_run_id": state.active_run_id,
         }
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 

@@ -91,7 +91,7 @@ def load_system_prompt(include_curation_guide: bool = False) -> str:
     if soul_text:
         compact_soul = _compact_soul_text(soul_text)
         combined = (
-            f"{prompt_text}\n\n"
+            f"{combined}\n\n"
             "Standing identity and tone guide from SOUL.md:\n"
             f"{compact_soul}"
         )

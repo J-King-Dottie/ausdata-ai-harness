@@ -1,18 +1,16 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
-import math
+import secrets
 from pathlib import Path
-from typing import AsyncGenerator
+from typing import Optional
 
 import os
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -37,6 +35,15 @@ class ResetRequest(BaseModel):
 class ConversationSnapshot(BaseModel):
     conversation_id: str
     messages: list[dict[str, str]]
+    run_status: str
+    latest_progress: str
+    latest_error: str
+
+
+class ChatAcceptedResponse(BaseModel):
+    conversation_id: str
+    run_status: str
+    latest_progress: str
 
 
 def _configure_logger() -> logging.Logger:
@@ -55,6 +62,7 @@ store = ConversationStore()
 app = FastAPI(title="ABS Analyst Harness API", version="0.2.0")
 logger = _configure_logger()
 frontend_dist = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+_RUN_TASKS: dict[str, asyncio.Task] = {}
 
 
 def _cors_origins() -> list[str]:
@@ -95,25 +103,93 @@ if frontend_dist.exists():
         return FileResponse(frontend_dist / "index.html")
 
 
-def _chunk_text(text: str, chunk_size: int = 512) -> AsyncGenerator[str, None]:
-    total_length = len(text)
-    if total_length == 0:
-        yield ""
-        return
-
-    steps = math.ceil(total_length / chunk_size)
-    for index in range(steps):
-        start = index * chunk_size
-        end = min(start + chunk_size, total_length)
-        yield text[start:end]
-
-
 def _truncate(text: str, length: int = 280) -> str:
     clean = text.replace("\n", " ").strip()
     return clean if len(clean) <= length else clean[: length - 1] + "…"
 
 
-@app.post("/api/chat")
+def _filtered_messages(state) -> list[dict[str, str]]:
+    return [
+        message
+        for message in state.messages
+        if isinstance(message, dict)
+        and str(message.get("role") or "").strip().lower() in {"user", "assistant"}
+        and str(message.get("content") or "").strip()
+    ]
+
+
+def _snapshot_from_state(state) -> ConversationSnapshot:
+    return ConversationSnapshot(
+        conversation_id=state.conversation_id,
+        messages=_filtered_messages(state),
+        run_status=str(state.run_status or "idle"),
+        latest_progress=str(state.latest_progress or ""),
+        latest_error=str(state.latest_error or ""),
+    )
+
+
+async def _run_generation_job(
+    *,
+    conversation_id: str,
+    user_input: str,
+    run_id: str,
+) -> None:
+    def emit_status(message: str) -> None:
+        state = store.load(conversation_id)
+        if state.active_run_id != run_id:
+            return
+        state.latest_progress = str(message or "").strip()
+        state.latest_error = ""
+        store.save(state)
+
+    try:
+        final_response = await asyncio.to_thread(
+            generate_response,
+            conversation_id,
+            user_input,
+            store,
+            emit_status,
+        )
+    except ConversationCancelled:
+        logger.info("Conversation cancelled mid-generation cid=%s", conversation_id)
+        state = store.load(conversation_id)
+        if state.active_run_id == run_id:
+            state.run_status = "cancelled"
+            state.latest_progress = ""
+            state.latest_error = "Conversation cancelled by user."
+            state.active_run_id = None
+            store.save(state)
+    except Exception as exc:
+        logger.exception(
+            "Failed to generate response cid=%s error=%s",
+            conversation_id,
+            exc,
+        )
+        state = store.load(conversation_id)
+        if state.active_run_id == run_id:
+            state.run_status = "failed"
+            state.latest_progress = ""
+            state.latest_error = str(exc)
+            state.active_run_id = None
+            store.save(state)
+    else:
+        logger.info(
+            'Response ready cid=%s preview="%s"',
+            conversation_id,
+            _truncate(final_response),
+        )
+        state = store.load(conversation_id)
+        if state.active_run_id == run_id:
+            state.run_status = "completed"
+            state.latest_progress = ""
+            state.latest_error = ""
+            state.active_run_id = None
+            store.save(state)
+    finally:
+        _RUN_TASKS.pop(conversation_id, None)
+
+
+@app.post("/api/chat", response_model=ChatAcceptedResponse)
 async def chat(request: ChatRequest):
     user_input = request.message.strip()
     if not user_input:
@@ -125,81 +201,49 @@ async def chat(request: ChatRequest):
         _truncate(user_input),
     )
 
-    loop = asyncio.get_running_loop()
-    queue: asyncio.Queue[tuple[str, str]] = asyncio.Queue()
+    state = store.load(request.conversation_id)
+    if state.run_status == "processing":
+        return ChatAcceptedResponse(
+            conversation_id=request.conversation_id,
+            run_status="processing",
+            latest_progress=str(state.latest_progress or "Still working on the current request."),
+        )
 
-    def emit_status(message: str) -> None:
-        loop.call_soon_threadsafe(queue.put_nowait, ("status", message))
+    run_id = secrets.token_hex(8)
+    state.run_status = "processing"
+    state.latest_progress = "Starting analysis."
+    state.latest_error = ""
+    state.active_run_id = run_id
+    store.save(state)
 
-    async def run_generation():
-        try:
-            final_response = await asyncio.to_thread(
-                generate_response,
-                request.conversation_id,
-                user_input,
-                store,
-                emit_status,
-            )
-        except ConversationCancelled:
-            logger.info("Conversation cancelled mid-generation cid=%s", request.conversation_id)
-            await queue.put(("error", "Conversation cancelled by user."))
-        except Exception as exc:
-            logger.exception(
-                "Failed to generate response cid=%s error=%s",
-                request.conversation_id,
-                exc,
-            )
-            await queue.put(("error", str(exc)))
-        else:
-            logger.info(
-                'Response ready cid=%s preview="%s"',
-                request.conversation_id,
-                _truncate(final_response),
-            )
-            await queue.put(("final", final_response))
+    task = asyncio.create_task(
+        _run_generation_job(
+            conversation_id=request.conversation_id,
+            user_input=user_input,
+            run_id=run_id,
+        )
+    )
+    _RUN_TASKS[request.conversation_id] = task
 
-    generation_task = asyncio.create_task(run_generation())
-
-    async def event_stream():
-        try:
-            while True:
-                kind, payload = await queue.get()
-                if kind == "status":
-                    yield json.dumps({"type": "status", "message": payload}, ensure_ascii=False) + "\n"
-                elif kind == "final":
-                    for chunk in _chunk_text(payload):
-                        yield json.dumps({"type": "final", "chunk": chunk}, ensure_ascii=False) + "\n"
-                    yield json.dumps({"type": "done"}, ensure_ascii=False) + "\n"
-                    break
-                elif kind == "error":
-                    yield json.dumps({"type": "error", "message": payload}, ensure_ascii=False) + "\n"
-                    yield json.dumps({"type": "done"}, ensure_ascii=False) + "\n"
-                    break
-        finally:
-            if not generation_task.done():
-                generation_task.cancel()
-
-    return StreamingResponse(event_stream(), media_type="text/plain")
+    return ChatAcceptedResponse(
+        conversation_id=request.conversation_id,
+        run_status="processing",
+        latest_progress=state.latest_progress,
+    )
 
 
 @app.get("/api/conversation/{conversation_id}", response_model=ConversationSnapshot)
 async def get_conversation(conversation_id: str):
     state = store.load(conversation_id)
-    return ConversationSnapshot(
-        conversation_id=conversation_id,
-        messages=[
-            message
-            for message in state.messages
-            if isinstance(message, dict)
-            and str(message.get("role") or "").strip().lower() in {"user", "assistant"}
-            and str(message.get("content") or "").strip()
-        ],
-    )
+    return _snapshot_from_state(state)
 
 
 @app.post("/api/reset")
 async def reset(request: ResetRequest):
     cancel_conversation_processing(request.conversation_id)
+    running_task: Optional[asyncio.Task] = _RUN_TASKS.pop(request.conversation_id, None)
+    if running_task is not None and not running_task.done():
+        running_task.cancel()
     store.clear(request.conversation_id)
     reset_conversation_runtime(request.conversation_id)
     logger.info("Conversation cleared cid=%s", request.conversation_id)

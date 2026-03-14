@@ -16,7 +16,11 @@ import httpx
 from .config import get_settings
 from .curated_abs import get_curated_dataset, list_curated_datasets, upsert_ai_curated_dataset
 from .harness.parser import HarnessParserError, parse_harness_loop_output
-from .harness.prompt_builder import build_loop_payload, build_model_messages, load_system_prompt
+from .harness.prompt_builder import (
+    build_loop_payload,
+    build_model_messages,
+    load_system_prompt,
+)
 from .harness.state import build_chat_history_payload, compact_artifacts, compact_chat_history, compact_loop_history
 from .mcp_bridge import MCPBridgeError, get_dataflow_metadata, list_dataflows, resolve_dataset
 from .storage import ConversationStore
@@ -183,7 +187,7 @@ def _extract_openai_output_text(response_data: Dict[str, Any]) -> str:
     return "".join(fragments).strip()
 
 
-def _call_model(messages: List[Dict[str, str]]) -> str:
+def _call_model(messages: List[Dict[str, str]], *, reasoning_effort: Optional[str] = None) -> str:
     openai_messages: List[Dict[str, Any]] = []
     for message in messages:
         role = str(message.get("role") or "user").strip().lower()
@@ -213,7 +217,7 @@ def _call_model(messages: List[Dict[str, str]]) -> str:
         "max_output_tokens": settings.openai_max_output_tokens,
         "input": openai_messages,
         "reasoning": {
-            "effort": settings.openai_reasoning_effort,
+            "effort": reasoning_effort or settings.openai_reasoning_effort,
         },
         "text": {
             "format": HARNESS_RESPONSE_SCHEMA,
@@ -1687,6 +1691,31 @@ def _validate_sandbox_artifact_references(code: str, artifact_ids: List[str]) ->
         )
 
 
+def _lint_sandbox_code(code: str) -> Optional[str]:
+    source = str(code or "")
+
+    brittle_descending_sort = re.search(
+        r"key\s*=\s*lambda\s+[^:]+:\s*-\s*[^\n,)]{3,}",
+        source,
+        re.IGNORECASE,
+    )
+    if brittle_descending_sort:
+        return (
+            "The sandbox step uses a handwritten descending lambda with unary minus. "
+            "That pattern is brittle on ABS rows because fields may be nested or non-numeric. "
+            "Use sort_by_numeric(...), top_n_by_numeric(...), or extract numbers with get_numeric()/coerce_number() first."
+        )
+
+    custom_uniq = re.search(r"^\s*def\s+uniq\s*\(", source, re.IGNORECASE | re.MULTILINE)
+    if custom_uniq:
+        return (
+            "The sandbox step defines a custom uniq helper. "
+            "Prefer distinct_values(...), group_rows(...), or index_rows(...) instead of handwritten dedupe logic."
+        )
+
+    return None
+
+
 def _execute_sandbox_tool(
     *,
     tool_input: Dict[str, Any],
@@ -1701,6 +1730,9 @@ def _execute_sandbox_tool(
     if not code:
         raise RuntimeError("sandbox_tool requires code")
     _validate_sandbox_artifact_references(code, artifact_ids)
+    lint_error = _lint_sandbox_code(code)
+    if lint_error:
+        raise RuntimeError(lint_error)
 
     allowed_artifacts = {
         artifact["artifact_id"]: artifact
@@ -1726,7 +1758,7 @@ def _execute_sandbox_tool(
         capture_output=True,
         text=True,
         cwd=str(run_dir),
-        timeout=45,
+        timeout=90,
     )
     if completed.returncode != 0:
         raise RuntimeError(
@@ -1859,6 +1891,18 @@ def _classify_tool_failure(step_id: str, error_text: str, tool_input: Dict[str, 
         result["retry_guidance"] = (
             "The sandbox step was too heavy. Retry with a smaller inspection step or simplify the transformation before joining artifacts."
         )
+    elif "handwritten descending lambda with unary minus" in lowered:
+        result["error_class"] = "sandbox_brittle_sort"
+        result["retry_guidance"] = (
+            "Do not hand-write descending sort lambdas over ABS rows. "
+            "Use sort_by_numeric/top_n_by_numeric or inspect and extract numeric fields first."
+        )
+    elif "defines a custom uniq helper" in lowered:
+        result["error_class"] = "sandbox_custom_dedupe"
+        result["retry_guidance"] = (
+            "Do not write custom uniq/dedupe helpers. "
+            "Use distinct_values, group_rows, or index_rows to inspect or deduplicate rows."
+        )
     else:
         result["error_class"] = "sandbox_generic"
         result["retry_guidance"] = (
@@ -1900,6 +1944,17 @@ def _count_recent_recovery_failures(state) -> int:
             break
         count += 1
     return count
+
+
+def _retry_reasoning_effort(state) -> Optional[str]:
+    last_entry = state.loop_history[-1] if state.loop_history else None
+    if not isinstance(last_entry, dict):
+        return None
+    result_data = last_entry.get("result_data") if isinstance(last_entry.get("result_data"), dict) else {}
+    kind = str(result_data.get("kind") or "").strip()
+    if kind in {"tool_error", "model_call_error", "harness_parse_error"}:
+        return "medium"
+    return None
 
 
 def _reset_context_after_curation(state, plan_context: Dict[str, Any]) -> None:
@@ -2089,7 +2144,10 @@ def generate_response(
                 protected_artifact_count=protected_artifact_count,
             )
             try:
-                raw_model_response = _call_model(build_model_messages(payload))
+                raw_model_response = _call_model(
+                    build_model_messages(payload),
+                    reasoning_effort=_retry_reasoning_effort(state),
+                )
             except Exception as exc:
                 logger.exception(
                     "Model call failed cid=%s loop=%s error=%s",

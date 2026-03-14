@@ -1,4 +1,4 @@
-import { Fragment, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
+import { Fragment, type Dispatch, type FormEvent, type KeyboardEvent, type ReactNode, type SetStateAction } from "react";
 import { useEffect, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import ReactECharts from "echarts-for-react";
@@ -15,20 +15,29 @@ interface ChatMessage {
 
 interface PendingMessage {
   id: string;
-  abortController: AbortController;
 }
 
 interface ConversationSnapshotResponse {
   conversation_id?: unknown;
   messages?: unknown;
+  run_status?: unknown;
+  latest_progress?: unknown;
+  latest_error?: unknown;
+}
+
+interface ChatAcceptedResponse {
+  conversation_id?: unknown;
+  run_status?: unknown;
+  latest_progress?: unknown;
 }
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
 const STORAGE_KEY = "abs-analyst-session";
+const MAX_POLL_FAILURES = 20;
 const EXAMPLE_PROMPTS = [
   "What data do you have access to?",
   "Show me a chart of Manufacturing jobs over the last 2 decades?",
-  "Which states increased their investment the most in the last 5 years?",
+  "Show me which states had the highest 5 year growth in investment (gross fixed capital formation).",
 ];
 
 function createConversationId() {
@@ -732,6 +741,28 @@ function mapBackendMessages(rawMessages: unknown): ChatMessage[] {
   });
 }
 
+function applyConversationSnapshot(
+  payload: ConversationSnapshotResponse,
+  setMessages: Dispatch<SetStateAction<ChatMessage[]>>,
+  assistantMessageId?: string
+) {
+  const restoredMessages = mapBackendMessages(payload.messages);
+  if (restoredMessages.length > 0) {
+    setMessages(restoredMessages);
+    return;
+  }
+  if (!assistantMessageId) {
+    return;
+  }
+  setMessages((prev) =>
+    prev.map((message) =>
+      message.id === assistantMessageId
+        ? { ...message, content: "There was an error generating a response." }
+        : message
+    )
+  );
+}
+
 function ProductTitle() {
   return (
     <div className="product-title">
@@ -808,10 +839,10 @@ function App() {
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [pending, setPending] = useState<PendingMessage | null>(null);
   const scrollRef = useRef<HTMLElement | null>(null);
   const pendingRef = useRef<PendingMessage | null>(null);
   const lastProgressRef = useRef("");
+  const pollFailureCountRef = useRef(0);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const hydratedConversationRef = useRef("");
 
@@ -897,9 +928,22 @@ function App() {
         if (!active) {
           return;
         }
-        const restoredMessages = mapBackendMessages(payload.messages);
-        if (restoredMessages.length > 0) {
-          setMessages(restoredMessages);
+        applyConversationSnapshot(payload, setMessages);
+        const runStatus = String(payload.run_status ?? "");
+        if (runStatus === "processing") {
+          const placeholderId = createConversationId();
+          setMessages((prev) =>
+            prev.some((message) => message.sender === "assistant" && !message.content)
+              ? prev
+              : [...prev, { id: placeholderId, sender: "assistant", content: "" }]
+          );
+          const resumedPending = { id: placeholderId };
+          pendingRef.current = resumedPending;
+          setIsStreaming(true);
+        }
+        const latestError = String(payload.latest_error ?? "").trim();
+        if (latestError) {
+          setError(latestError);
         }
       })
       .catch((loadError) => {
@@ -912,10 +956,6 @@ function App() {
   }, [authReady, conversationId, session]);
 
   const resetConversation = async () => {
-    if (pending) {
-      pending.abortController.abort();
-    }
-
     try {
       await fetch(`${API_BASE}/api/reset`, {
         method: "POST",
@@ -931,7 +971,6 @@ function App() {
     setInput("");
     setError(null);
     setIsStreaming(false);
-    setPending(null);
     pendingRef.current = null;
     lastProgressRef.current = "";
     hydratedConversationRef.current = "";
@@ -992,13 +1031,11 @@ function App() {
     setIsStreaming(true);
     setError(null);
     lastProgressRef.current = "";
+    pollFailureCountRef.current = 0;
 
-    const abortController = new AbortController();
     const pendingState: PendingMessage = {
       id: assistantMessage.id,
-      abortController,
     };
-    setPending(pendingState);
     pendingRef.current = pendingState;
 
     try {
@@ -1009,90 +1046,29 @@ function App() {
           conversation_id: conversationId,
           message: trimmedPrompt,
         }),
-        signal: abortController.signal,
       });
 
-      if (!response.ok || !response.body) {
+      if (!response.ok) {
         throw new Error(
           `Request failed with status ${response.status} ${response.statusText}`
         );
       }
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let assistantContent = "";
-      let streamComplete = false;
-
-      while (!streamComplete) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-
-        let newlineIndex = buffer.indexOf("\n");
-        while (newlineIndex !== -1) {
-          const line = buffer.slice(0, newlineIndex).trim();
-          buffer = buffer.slice(newlineIndex + 1);
-
-          if (line) {
-            let payload: { type?: string; message?: string; chunk?: string } | null = null;
-            try {
-              payload = JSON.parse(line);
-            } catch {
-              payload = null;
-            }
-
-            if (payload?.type === "status" && typeof payload.message === "string") {
-              const progressContent = simplifyStatusMessage(payload.message);
-              if (progressContent && progressContent !== lastProgressRef.current) {
-                lastProgressRef.current = progressContent;
-                const progressMessage: ChatMessage = {
-                  id: createConversationId(),
-                  sender: "progress",
-                  content: progressContent,
-                };
-                setMessages((prev) => {
-                  const next = [...prev];
-                  const assistantIndex = next.findIndex((msg) => msg.id === assistantMessage.id);
-                  const insertionIndex = assistantIndex === -1 ? next.length : assistantIndex;
-                  next.splice(insertionIndex, 0, progressMessage);
-                  return next;
-                });
-              }
-            } else if (payload?.type === "final" && typeof payload.chunk === "string") {
-              assistantContent += payload.chunk;
-              const snapshot = assistantContent;
-              setMessages((prev) =>
-                prev.map((message) =>
-                  message.id === assistantMessage.id
-                    ? { ...message, content: snapshot }
-                    : message
-                )
-              );
-            } else if (payload?.type === "error") {
-              const message =
-                typeof payload.message === "string"
-                  ? payload.message
-                  : "The assistant could not finish generating a response.";
-              setError(message);
-              setMessages((prev) =>
-                prev.map((message) =>
-                  message.id === assistantMessage.id
-                    ? { ...message, content: "There was an error generating a response." }
-                    : message
-                )
-              );
-              streamComplete = true;
-              break;
-            } else if (payload?.type === "done") {
-              streamComplete = true;
-              break;
-            }
-          }
-
-          newlineIndex = buffer.indexOf("\n");
-        }
+      const payload = (await response.json()) as ChatAcceptedResponse;
+      const initialProgress = simplifyStatusMessage(String(payload.latest_progress ?? ""));
+      if (initialProgress && initialProgress !== lastProgressRef.current) {
+        lastProgressRef.current = initialProgress;
+        const progressMessage: ChatMessage = {
+          id: createConversationId(),
+          sender: "progress",
+          content: initialProgress,
+        };
+        setMessages((prev) => {
+          const next = [...prev];
+          const assistantIndex = next.findIndex((msg) => msg.id === assistantMessage.id);
+          const insertionIndex = assistantIndex === -1 ? next.length : assistantIndex;
+          next.splice(insertionIndex, 0, progressMessage);
+          return next;
+        });
       }
     } catch (err) {
       console.error(err);
@@ -1105,12 +1081,101 @@ function App() {
             : message
         )
       );
-    } finally {
       setIsStreaming(false);
-      setPending(null);
       pendingRef.current = null;
     }
   };
+
+  useEffect(() => {
+    if (!conversationId || !isStreaming || !pendingRef.current) {
+      return;
+    }
+
+    let cancelled = false;
+    const assistantMessageId = pendingRef.current.id;
+
+    const pollOnce = async () => {
+      try {
+        const response = await fetch(`${API_BASE}/api/conversation/${encodeURIComponent(conversationId)}`);
+        if (!response.ok) {
+          throw new Error(`Failed to poll conversation: ${response.status}`);
+        }
+        const payload = (await response.json()) as ConversationSnapshotResponse;
+        if (cancelled) {
+          return;
+        }
+
+        pollFailureCountRef.current = 0;
+        setError((prev) => (prev === "Connection interrupted. Retrying..." ? null : prev));
+
+        const runStatus = String(payload.run_status ?? "").trim().toLowerCase();
+        const latestProgress = simplifyStatusMessage(String(payload.latest_progress ?? ""));
+        const latestError = String(payload.latest_error ?? "").trim();
+
+        if (latestProgress && latestProgress !== lastProgressRef.current) {
+          lastProgressRef.current = latestProgress;
+          const progressMessage: ChatMessage = {
+            id: createConversationId(),
+            sender: "progress",
+            content: latestProgress,
+          };
+          setMessages((prev) => {
+            const next = [...prev];
+            const assistantIndex = next.findIndex((msg) => msg.id === assistantMessageId);
+            const insertionIndex = assistantIndex === -1 ? next.length : assistantIndex;
+            next.splice(insertionIndex, 0, progressMessage);
+            return next;
+          });
+        }
+
+        if (runStatus === "completed") {
+          applyConversationSnapshot(payload, setMessages, assistantMessageId);
+          setIsStreaming(false);
+          pendingRef.current = null;
+          return;
+        }
+
+        if (runStatus === "failed" || runStatus === "cancelled") {
+          setError(latestError || "There was an error generating a response.");
+          applyConversationSnapshot(payload, setMessages, assistantMessageId);
+          setIsStreaming(false);
+          pendingRef.current = null;
+        }
+      } catch (err) {
+        if (cancelled) {
+          return;
+        }
+        console.error(err);
+        pollFailureCountRef.current += 1;
+        if (pollFailureCountRef.current < MAX_POLL_FAILURES) {
+          setError("Connection interrupted. Retrying...");
+          return;
+        }
+        const message =
+          err instanceof Error ? err.message : "Failed to reach the server.";
+        setError(message);
+        setMessages((prev) =>
+          prev.map((messageItem) =>
+            messageItem.id === assistantMessageId
+              ? { ...messageItem, content: "There was an error generating a response." }
+              : messageItem
+          )
+        );
+        setIsStreaming(false);
+        pendingRef.current = null;
+      }
+    };
+
+    void pollOnce();
+    const timer = window.setInterval(() => {
+      void pollOnce();
+    }, 1500);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [conversationId, isStreaming]);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();

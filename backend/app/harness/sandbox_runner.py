@@ -93,6 +93,39 @@ def _row_matches(row: Any, criteria: Dict[str, Any]) -> bool:
     return True
 
 
+def _key_tuple_from_row(row: Dict[str, Any], key_fields: tuple[str, ...]) -> tuple[Any, ...]:
+    return tuple(row.get(field) for field in key_fields)
+
+
+def _coerce_number(value: Any, default: Any = None) -> Any:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return float(value)
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        text = value.strip().replace(",", "")
+        if not text:
+            return default
+        try:
+            return float(text)
+        except ValueError:
+            return default
+    return default
+
+
+def _extract_numeric_from_row(row: Dict[str, Any], field: str, default: Any = None) -> Any:
+    value = row.get(field)
+    if isinstance(value, dict):
+        for candidate in ("value", "raw", "numeric", "number"):
+            numeric = _coerce_number(value.get(candidate), default=None)
+            if numeric is not None:
+                return numeric
+        return default
+    return _coerce_number(value, default=default)
+
+
 def main() -> int:
     import sys
 
@@ -265,6 +298,52 @@ def main() -> int:
             "percent_change": percent_change,
         }
 
+    def coerce_number(value: Any, default: Any = None):
+        return _coerce_number(value, default=default)
+
+    def get_numeric(row: Any, field: str = "value", default: Any = None):
+        typed_row = _ensure_row_mapping(row)
+        if typed_row is None:
+            return default
+        return _extract_numeric_from_row(typed_row, field, default=default)
+
+    def numeric_fields(rows):
+        typed_rows = [_ensure_row_mapping(row) for row in rows]
+        sample_rows = [row for row in typed_rows if row][:50]
+        if not sample_rows:
+            return []
+        candidate_keys = sorted({key for row in sample_rows for key in row.keys()})
+        fields = []
+        for key in candidate_keys:
+            numeric_count = 0
+            populated_count = 0
+            for row in sample_rows:
+                if key not in row or row.get(key) is None:
+                    continue
+                populated_count += 1
+                if _extract_numeric_from_row(row, key, default=None) is not None:
+                    numeric_count += 1
+            if populated_count and numeric_count == populated_count:
+                fields.append(key)
+        return fields
+
+    def distinct_values(rows, field: str, *, drop_none: bool = True):
+        seen = []
+        seen_keys = set()
+        for row in rows:
+            typed_row = _ensure_row_mapping(row)
+            if typed_row is None:
+                continue
+            value = typed_row.get(field)
+            if drop_none and value is None:
+                continue
+            marker = json.dumps(value, ensure_ascii=False, sort_keys=True) if isinstance(value, (dict, list)) else value
+            if marker in seen_keys:
+                continue
+            seen_keys.add(marker)
+            seen.append(value)
+        return seen
+
     def filter_rows(rows, **criteria):
         return [row for row in rows if _row_matches(row, criteria)]
 
@@ -293,6 +372,158 @@ def main() -> int:
         if missing:
             raise ValueError(f"Missing required fields: {', '.join(missing)}")
         return obj
+
+    def index_rows(rows, *key_fields: str):
+        if not key_fields:
+            raise ValueError("index_rows requires at least one key field")
+        indexed = {}
+        for row in rows:
+            typed_row = _ensure_row_mapping(row)
+            if typed_row is None:
+                continue
+            indexed[_key_tuple_from_row(typed_row, tuple(key_fields))] = typed_row
+        return indexed
+
+    def group_rows(rows, *key_fields: str):
+        if not key_fields:
+            raise ValueError("group_rows requires at least one key field")
+        grouped = {}
+        for row in rows:
+            typed_row = _ensure_row_mapping(row)
+            if typed_row is None:
+                continue
+            key = _key_tuple_from_row(typed_row, tuple(key_fields))
+            grouped.setdefault(key, []).append(typed_row)
+        return grouped
+
+    def sum_values(rows, value_field: str = "value"):
+        total = 0.0
+        count = 0
+        for row in rows:
+            typed_row = _ensure_row_mapping(row)
+            if typed_row is None:
+                continue
+            raw_value = typed_row.get(value_field)
+            if raw_value is None:
+                continue
+            total += float(raw_value)
+            count += 1
+        return {"total": total, "count": count}
+
+    def sort_by_numeric(rows, field: str = "value", *, descending: bool = False, missing: str = "last"):
+        if missing not in {"first", "last"}:
+            raise ValueError("sort_by_numeric missing must be 'first' or 'last'")
+
+        typed_rows = []
+        for row in rows:
+            typed_row = _ensure_row_mapping(row)
+            if typed_row is not None:
+                typed_rows.append(typed_row)
+
+        present = []
+        missing_rows = []
+        for row in typed_rows:
+            numeric = _extract_numeric_from_row(row, field, default=None)
+            if numeric is None:
+                missing_rows.append(row)
+            else:
+                present.append((numeric, row))
+
+        present.sort(key=lambda item: item[0], reverse=descending)
+        ordered_present = [row for _, row in present]
+        if missing == "first":
+            return missing_rows + ordered_present
+        return ordered_present + missing_rows
+
+    def top_n_by_numeric(rows, field: str = "value", n: int = 5, *, descending: bool = True):
+        limit = int(n)
+        if limit < 0:
+            raise ValueError("top_n_by_numeric n must be >= 0")
+        ordered = sort_by_numeric(rows, field, descending=descending, missing="last")
+        selected = []
+        for row in ordered:
+            if _extract_numeric_from_row(row, field, default=None) is None:
+                continue
+            selected.append(row)
+            if len(selected) >= limit:
+                break
+        return selected
+
+    def safe_ratio(numerator: Any, denominator: Any, *, default: Any = None):
+        num = _coerce_number(numerator, default=None)
+        den = _coerce_number(denominator, default=None)
+        if num is None or den in {None, 0.0}:
+            return default
+        return num / den
+
+    def latest_common_period(*row_sets):
+        normalized_sets = []
+        for rows in row_sets:
+            period_set = set()
+            for row in rows or []:
+                typed_row = _ensure_row_mapping(row)
+                if typed_row is None:
+                    continue
+                period = typed_row.get("TIME_PERIOD_code") or typed_row.get("TIME_PERIOD")
+                if period is not None:
+                    period_set.add(period)
+            if not period_set:
+                return None
+            normalized_sets.append(period_set)
+        if not normalized_sets:
+            return None
+        common = set.intersection(*normalized_sets)
+        if not common:
+            return None
+        return max(common, key=_time_sort_key)
+
+    def join_rows(left_rows, right_rows, left_keys, right_keys=None, *, how: str = "inner", right_prefix: str = "right_"):
+        if isinstance(left_keys, str):
+            left_key_fields = (left_keys,)
+        else:
+            left_key_fields = tuple(left_keys)
+        if not left_key_fields:
+            raise ValueError("join_rows requires at least one left key")
+
+        if right_keys is None:
+            right_key_fields = left_key_fields
+        elif isinstance(right_keys, str):
+            right_key_fields = (right_keys,)
+        else:
+            right_key_fields = tuple(right_keys)
+
+        if len(left_key_fields) != len(right_key_fields):
+            raise ValueError("join_rows requires the same number of left_keys and right_keys")
+        if how not in {"inner", "left"}:
+            raise ValueError("join_rows how must be 'inner' or 'left'")
+
+        right_index = {}
+        for row in right_rows:
+            typed_row = _ensure_row_mapping(row)
+            if typed_row is None:
+                continue
+            key = _key_tuple_from_row(typed_row, right_key_fields)
+            right_index.setdefault(key, []).append(typed_row)
+
+        joined = []
+        for row in left_rows:
+            left_typed = _ensure_row_mapping(row)
+            if left_typed is None:
+                continue
+            left_key = _key_tuple_from_row(left_typed, left_key_fields)
+            matches = right_index.get(left_key) or []
+            if not matches and how == "left":
+                joined.append(dict(left_typed))
+                continue
+            for match in matches:
+                merged = dict(left_typed)
+                for key, value in match.items():
+                    if key in merged:
+                        merged[f"{right_prefix}{key}"] = value
+                    else:
+                        merged[key] = value
+                joined.append(merged)
+        return joined
 
     def load_soul_md():
         if not soul_path.exists():
@@ -434,13 +665,20 @@ def main() -> int:
 
     exec_env: Dict[str, Any] = {
         "__builtins__": SAFE_BUILTINS,
+        "coerce_number": coerce_number,
+        "distinct_values": distinct_values,
         "earliest_row": earliest_row,
         "filter_rows": filter_rows,
         "find_row": find_row,
+        "get_numeric": get_numeric,
         "get_resolved_dataset": get_resolved_dataset,
         "get_series_rows": get_series_rows,
+        "group_rows": group_rows,
         "inspect_artifact": inspect_artifact,
         "inspect_artifact_schema": inspect_artifact_schema,
+        "index_rows": index_rows,
+        "join_rows": join_rows,
+        "latest_common_period": latest_common_period,
         "latest_row": latest_row,
         "list_artifacts": list_artifacts,
         "load_curated_catalog": load_curated_catalog,
@@ -450,11 +688,16 @@ def main() -> int:
         "load_artifact": load_artifact,
         "load_soul_md": load_soul_md,
         "numeric_change": numeric_change,
+        "numeric_fields": numeric_fields,
         "require_fields": require_fields,
         "require_row": require_row,
+        "safe_ratio": safe_ratio,
         "save_json": save_json,
         "save_text": save_text,
         "safe_get": safe_get,
+        "sort_by_numeric": sort_by_numeric,
+        "sum_values": sum_values,
+        "top_n_by_numeric": top_n_by_numeric,
         "result": None,
         "sort_rows_by_time": sort_rows_by_time,
         "upsert_curated_dataset_ai": upsert_curated_dataset_ai,
