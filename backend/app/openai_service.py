@@ -2140,9 +2140,20 @@ def generate_response(
     try:
         state = store.load(conversation_id)
         _ensure_runtime_dirs(conversation_id)
+        saved_progress_messages: list[str] = []
+
+        def emit_status(message: str) -> None:
+            normalized = str(message or "").strip()
+            if not normalized:
+                return
+            status_callback(normalized)
+            if not saved_progress_messages or saved_progress_messages[-1] != normalized:
+                saved_progress_messages.append(normalized)
 
         def persist_completed_turn(assistant_content: str) -> None:
             state.messages.append({"role": "user", "content": user_content})
+            for progress_message in saved_progress_messages:
+                state.messages.append({"role": "progress", "content": progress_message})
             state.messages.append({"role": "assistant", "content": assistant_content})
             state.active_run_message_count = len(state.messages)
             state.active_run_loop_count = len(state.loop_history)
@@ -2163,7 +2174,7 @@ def generate_response(
                     f"{str(plan_context.get('question') or user_content).strip()}\n\n"
                     f"User clarification: {user_content.strip()}"
                 ).strip()
-                status_callback("Got the clarification. Continuing with the analysis.")
+                emit_status("Got the clarification. Continuing with the analysis.")
             else:
                 plan_reply = _detect_plan_reply(user_content)
                 if plan_reply == "approve":
@@ -2183,9 +2194,9 @@ def generate_response(
                             "plan_context": approved_answer_context,
                         }
                         active_user_message = str(approved_answer_context.get("question") or user_content).strip() or user_content
-                        status_callback("Curation approved. Continuing in curated-answer mode.")
+                        emit_status("Curation approved. Continuing in curated-answer mode.")
                     elif curate_dataset_id:
-                        status_callback(f"Adding `{curate_dataset_id}` to the AI-curated ABS overlay.")
+                        emit_status(f"Adding `{curate_dataset_id}` to the AI-curated ABS overlay.")
                         curated_entry = _curate_dataset_from_abs(curate_dataset_id)
                         selected_ids = _clean_string_list(plan_context.get("selected_dataset_ids"))
                         if curate_dataset_id not in selected_ids:
@@ -2204,7 +2215,7 @@ def generate_response(
                             "plan_context": plan_context,
                         }
                         persist_completed_turn(followup_markdown)
-                        status_callback("The dataset has been curated into the AI overlay and is ready to use.")
+                        emit_status("The dataset has been curated into the AI overlay and is ready to use.")
                         return followup_markdown
                     else:
                         # A normal approval plan is the gate for broader raw ABS discovery.
@@ -2217,7 +2228,7 @@ def generate_response(
                             "plan_context": plan_context,
                         }
                         active_user_message = str(plan_context.get("question") or user_content).strip() or user_content
-                        status_callback("Plan approved. Continuing with the harness execution.")
+                        emit_status("Plan approved. Continuing with the harness execution.")
                 else:
                     state.pending_plan = None
 
@@ -2225,7 +2236,7 @@ def generate_response(
             active_user_message = _reset_context_after_user_correction(state, user_content)
             payload_chat_history = build_chat_history_payload(state.messages, recent_full_limit=8, older_compact_limit=4)
             state.pending_plan = None
-            status_callback("Rechecking from source after the correction.")
+            emit_status("Rechecking from source after the correction.")
 
         store.save(state)
 
@@ -2289,7 +2300,7 @@ def generate_response(
                         "The harness hit repeated model-call failures and stopped after 3 recovery attempts. "
                         "Please retry or ask a narrower follow-up."
                     )
-                status_callback("That loop hit a model error. Trying again.")
+                emit_status("That loop hit a model error. Trying again.")
                 continue
             try:
                 parsed = parse_harness_loop_output(raw_model_response)
@@ -2340,7 +2351,7 @@ def generate_response(
                             "The harness hit repeated malformed model outputs and stopped after 3 recovery attempts. "
                             "Please retry or ask a narrower follow-up."
                         )
-                    status_callback("That loop came back malformed. Trying again.")
+                    emit_status("That loop came back malformed. Trying again.")
                     continue
 
             step = parsed["step"]
@@ -2365,7 +2376,7 @@ def generate_response(
                 )
 
             if step["id"] not in {"propose_plan", "compose_final"}:
-                status_callback(progress_note)
+                emit_status(progress_note)
             _ensure_not_cancelled(conversation_id, cancel_event, f"loop_{loop_index}_after_parse")
 
             if step["id"] == "propose_plan":
@@ -2453,7 +2464,7 @@ def generate_response(
                     result_data=failure_data,
                 )
                 store.save(state)
-                status_callback("That step failed. Trying a different approach.")
+                emit_status("That step failed. Trying a different approach.")
                 continue
 
             result_summary = str(tool_result.get("summary") or "").strip()

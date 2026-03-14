@@ -117,7 +117,7 @@ def _filtered_messages(state) -> list[dict[str, str]]:
         message
         for message in state.messages
         if isinstance(message, dict)
-        and str(message.get("role") or "").strip().lower() in {"user", "assistant"}
+        and str(message.get("role") or "").strip().lower() in {"user", "assistant", "progress"}
         and str(message.get("content") or "").strip()
     ]
 

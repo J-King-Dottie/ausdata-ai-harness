@@ -697,7 +697,19 @@ function loadSavedSession() {
       typeof parsed.conversationId === "string" && parsed.conversationId.trim()
         ? parsed.conversationId
         : createConversationId();
-    return { conversationId, messages: [] as ChatMessage[] };
+    const messages = Array.isArray(parsed.messages)
+      ? parsed.messages.filter(
+          (message): message is ChatMessage =>
+            !!message &&
+            typeof message === "object" &&
+            typeof (message as ChatMessage).id === "string" &&
+            ((message as ChatMessage).sender === "user" ||
+              (message as ChatMessage).sender === "assistant" ||
+              (message as ChatMessage).sender === "progress") &&
+            typeof (message as ChatMessage).content === "string"
+        )
+      : [];
+    return { conversationId, messages };
   } catch {
     return null;
   }
@@ -717,7 +729,7 @@ function mapBackendMessages(rawMessages: unknown): ChatMessage[] {
     if (!content.trim()) {
       return [];
     }
-    if (role !== "user" && role !== "assistant") {
+    if (role !== "user" && role !== "assistant" && role !== "progress") {
       return [];
     }
     return [
@@ -733,15 +745,25 @@ function mapBackendMessages(rawMessages: unknown): ChatMessage[] {
 function keepCompletedTurns(messages: ChatMessage[]) {
   const completed: ChatMessage[] = [];
   let index = 0;
-  while (index + 1 < messages.length) {
+  while (index < messages.length) {
     const userMessage = messages[index];
-    const assistantMessage = messages[index + 1];
-    if (userMessage?.sender !== "user" || assistantMessage?.sender !== "assistant") {
+    if (userMessage?.sender !== "user" || !userMessage.content.trim()) {
       index += 1;
       continue;
     }
-    completed.push(userMessage, assistantMessage);
-    index += 2;
+
+    let cursor = index + 1;
+    while (cursor < messages.length && messages[cursor]?.sender === "progress") {
+      cursor += 1;
+    }
+
+    const assistantMessage = messages[cursor];
+    if (assistantMessage?.sender !== "assistant" || !assistantMessage.content.trim()) {
+      break;
+    }
+
+    completed.push(...messages.slice(index, cursor + 1));
+    index = cursor + 1;
   }
   return completed;
 }
@@ -756,30 +778,7 @@ function applyConversationSnapshot(
   const mappedMessages = mapBackendMessages(payload.messages);
   const restoredMessages = runStatus === "completed" ? mappedMessages : keepCompletedTurns(mappedMessages);
   if (restoredMessages.length > 0 || forceReplace) {
-    setMessages((prev) => {
-      const progressMessages = prev.filter((message) => message.sender === "progress");
-      if (progressMessages.length === 0 || forceReplace) {
-        return restoredMessages;
-      }
-
-      let lastAssistantIndex = -1;
-      for (let index = restoredMessages.length - 1; index >= 0; index -= 1) {
-        if (restoredMessages[index]?.sender === "assistant") {
-          lastAssistantIndex = index;
-          break;
-        }
-      }
-
-      if (lastAssistantIndex === -1) {
-        return [...restoredMessages, ...progressMessages];
-      }
-
-      return [
-        ...restoredMessages.slice(0, lastAssistantIndex),
-        ...progressMessages,
-        ...restoredMessages.slice(lastAssistantIndex),
-      ];
-    });
+    setMessages(restoredMessages);
     return;
   }
   if (!assistantMessageId) {
@@ -794,7 +793,7 @@ function applyConversationSnapshot(
   );
 }
 
-function upsertProgressMessage(
+function appendProgressMessage(
   setMessages: Dispatch<SetStateAction<ChatMessage[]>>,
   assistantMessageId: string,
   content: string
@@ -803,14 +802,6 @@ function upsertProgressMessage(
     const next = [...prev];
     const assistantIndex = next.findIndex((msg) => msg.id === assistantMessageId);
     const insertionIndex = assistantIndex === -1 ? next.length : assistantIndex;
-    const lastBeforeAssistant =
-      insertionIndex > 0 ? next[insertionIndex - 1] : null;
-
-    if (lastBeforeAssistant?.sender === "progress") {
-      next[insertionIndex - 1] = { ...lastBeforeAssistant, content };
-      return next;
-    }
-
     next.splice(insertionIndex, 0, {
       id: createConversationId(),
       sender: "progress",
@@ -954,10 +945,12 @@ function App() {
     if (typeof window === "undefined") {
       return;
     }
+    const completedMessages = keepCompletedTurns(messages);
     window.sessionStorage.setItem(
       STORAGE_KEY,
       JSON.stringify({
         conversationId,
+        messages: completedMessages,
       })
     );
   }, [conversationId, messages]);
@@ -1178,7 +1171,7 @@ function App() {
       const initialProgress = simplifyStatusMessage(String(payload.latest_progress ?? ""));
       if (initialProgress && initialProgress !== lastProgressRef.current) {
         lastProgressRef.current = initialProgress;
-        upsertProgressMessage(setMessages, assistantMessage.id, initialProgress);
+        appendProgressMessage(setMessages, assistantMessage.id, initialProgress);
       }
     } catch (err) {
       console.error(err);
@@ -1224,7 +1217,7 @@ function App() {
 
         if (latestProgress && latestProgress !== lastProgressRef.current) {
           lastProgressRef.current = latestProgress;
-          upsertProgressMessage(setMessages, assistantMessageId, latestProgress);
+          appendProgressMessage(setMessages, assistantMessageId, latestProgress);
         }
 
         if (runStatus === "completed") {
