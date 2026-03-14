@@ -23,7 +23,7 @@ interface ConversationSnapshotResponse {
   messages?: unknown;
 }
 
-const API_BASE = "";
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
 const STORAGE_KEY = "abs-analyst-session";
 const EXAMPLE_PROMPTS = [
   "What data do you have access to?",
@@ -147,7 +147,7 @@ function parseChartBlock(raw: string): ChartSpec | null {
           points,
         };
       })
-      .filter((entry): entry is ChartSeries => entry !== null);
+      .filter((entry: ChartSeries | null): entry is ChartSeries => entry !== null);
 
     if (!series.length) {
       return null;
@@ -272,41 +272,6 @@ function formatTick(value: number) {
   return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
-function buildNiceTicks(minValue: number, maxValue: number, count = 4) {
-  if (!Number.isFinite(minValue) || !Number.isFinite(maxValue)) {
-    return [0];
-  }
-  if (minValue === maxValue) {
-    return [minValue];
-  }
-
-  const range = maxValue - minValue;
-  const roughStep = range / Math.max(count - 1, 1);
-  const magnitude = 10 ** Math.floor(Math.log10(Math.abs(roughStep) || 1));
-  const normalized = roughStep / magnitude;
-
-  let niceStep = magnitude;
-  if (normalized <= 1) {
-    niceStep = magnitude;
-  } else if (normalized <= 2) {
-    niceStep = 2 * magnitude;
-  } else if (normalized <= 5) {
-    niceStep = 5 * magnitude;
-  } else {
-    niceStep = 10 * magnitude;
-  }
-
-  const niceMin = Math.floor(minValue / niceStep) * niceStep;
-  const niceMax = Math.ceil(maxValue / niceStep) * niceStep;
-  const ticks: number[] = [];
-
-  for (let tick = niceMin; tick <= niceMax + niceStep * 0.5; tick += niceStep) {
-    ticks.push(Number(tick.toFixed(10)));
-  }
-
-  return ticks.reverse();
-}
-
 function ChartBlock({ spec }: { spec: ChartSpec }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [containerWidth, setContainerWidth] = useState(0);
@@ -314,7 +279,6 @@ function ChartBlock({ spec }: { spec: ChartSpec }) {
   const allPoints = spec.series.flatMap((series) => series.points);
   const xValues = Array.from(new Set(allPoints.map((point) => point.x)));
   const longestXAxisLabelLength = xValues.reduce((max, value) => Math.max(max, value.length), 0);
-  const yValues = allPoints.map((point) => point.y);
   const longestSeries = Math.max(...spec.series.map((series) => series.points.length), 0);
   const isNarrow = containerWidth > 0 && containerWidth < 640;
   const useHorizontalBars =
@@ -497,7 +461,7 @@ function ChartBlock({ spec }: { spec: ChartSpec }) {
           max: (value: { min: number; max: number }) =>
             value.min === value.max ? value.max + 1 : value.max + (value.max - value.min) * 0.08,
         },
-    series: spec.series.map((series, index) => {
+    series: spec.series.map((series) => {
       const data = xValues.map((xValue) => {
         const match = series.points.find((point) => point.x === xValue);
         return match ? match.y : null;

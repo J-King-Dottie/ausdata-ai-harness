@@ -7,7 +7,10 @@ import math
 from pathlib import Path
 from typing import AsyncGenerator
 
+import os
+
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -52,6 +55,22 @@ store = ConversationStore()
 app = FastAPI(title="ABS Analyst Harness API", version="0.2.0")
 logger = _configure_logger()
 frontend_dist = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+
+
+def _cors_origins() -> list[str]:
+    raw = os.getenv("CORS_ALLOWED_ORIGINS", "")
+    return [origin.strip() for origin in raw.split(",") if origin.strip()]
+
+
+allowed_origins = _cors_origins()
+if allowed_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=allowed_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 
 @app.get("/health", tags=["health"])

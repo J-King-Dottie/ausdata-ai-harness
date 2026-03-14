@@ -1,0 +1,34 @@
+FROM node:22-bookworm-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PORT=8000
+
+WORKDIR /app
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends python3 python3-pip python3-venv \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY package.json package-lock.json tsconfig.json ./
+COPY src ./src
+
+RUN npm ci \
+    && npm run build \
+    && npm prune --omit=dev
+
+COPY backend ./backend
+COPY CURATED_ABS_CATALOG.txt CURATED_ABS_CATALOG.txt
+COPY CURATED_ABS_CATALOG_AI.txt CURATED_ABS_CATALOG_AI.txt
+COPY CURATED_ABS_STRUCTURES.txt CURATED_ABS_STRUCTURES.txt
+COPY CURATED_ABS_STRUCTURES_AI.txt CURATED_ABS_STRUCTURES_AI.txt
+COPY HARNESS_SYSTEM_PROMPT.txt HARNESS_SYSTEM_PROMPT.txt
+COPY SOUL.md SOUL.md
+COPY ABS_DataAPI.openapi.yaml ABS_DataAPI.openapi.yaml
+COPY run.py run.py
+
+RUN mkdir -p /app/runtime /app/cache \
+    && pip3 install --no-cache-dir -r backend/requirements.txt
+
+EXPOSE 8000
+
+CMD ["/bin/sh", "-lc", "python3 -m uvicorn backend.app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
