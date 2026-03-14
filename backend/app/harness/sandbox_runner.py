@@ -126,6 +126,11 @@ def _extract_numeric_from_row(row: Dict[str, Any], field: str, default: Any = No
     return _coerce_number(value, default=default)
 
 
+def _safe_float(value: Any) -> float | None:
+    coerced = _coerce_number(value, default=None)
+    return float(coerced) if coerced is not None else None
+
+
 def main() -> int:
     import sys
 
@@ -245,6 +250,7 @@ def main() -> int:
                         row[key] = value
                 row["observationKey"] = observation.get("observationKey")
                 row["value"] = observation.get("value")
+                row["value_numeric"] = _extract_numeric_from_row(row, "value", default=None)
                 rows.append(row)
         return rows
 
@@ -301,11 +307,17 @@ def main() -> int:
     def coerce_number(value: Any, default: Any = None):
         return _coerce_number(value, default=default)
 
+    def safe_float(value: Any):
+        return _safe_float(value)
+
     def get_numeric(row: Any, field: str = "value", default: Any = None):
         typed_row = _ensure_row_mapping(row)
         if typed_row is None:
             return default
         return _extract_numeric_from_row(typed_row, field, default=default)
+
+    def get_value(row: Any):
+        return get_numeric(row, "value", default=None)
 
     def numeric_fields(rows):
         typed_rows = [_ensure_row_mapping(row) for row in rows]
@@ -671,6 +683,7 @@ def main() -> int:
         "filter_rows": filter_rows,
         "find_row": find_row,
         "get_numeric": get_numeric,
+        "get_value": get_value,
         "get_resolved_dataset": get_resolved_dataset,
         "get_series_rows": get_series_rows,
         "group_rows": group_rows,
@@ -691,6 +704,7 @@ def main() -> int:
         "numeric_fields": numeric_fields,
         "require_fields": require_fields,
         "require_row": require_row,
+        "safe_float": safe_float,
         "safe_ratio": safe_ratio,
         "save_json": save_json,
         "save_text": save_text,

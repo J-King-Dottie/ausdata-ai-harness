@@ -37,6 +37,8 @@ body {
 }
 
 .app-header {
+  position: relative;
+  z-index: 20;
   display: flex;
   justify-content: space-between;
   gap: 1rem;
@@ -818,6 +820,7 @@ body {
 
 .header-tooltip {
   position: absolute;
+  z-index: 1000;
   right: 0;
   top: calc(100% + 0.45rem);
   padding: 0.45rem 0.65rem;

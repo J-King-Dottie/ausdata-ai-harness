@@ -37,7 +37,7 @@ const MAX_POLL_FAILURES = 20;
 const EXAMPLE_PROMPTS = [
   "What data do you have access to?",
   "Show me a chart of Manufacturing jobs over the last 2 decades?",
-  "Show me which states had the highest 5 year growth in investment (gross fixed capital formation).",
+  "Show me which states had the highest 5 year growth in private investment (gross fixed capital formation).",
 ];
 
 function createConversationId() {
@@ -748,7 +748,30 @@ function applyConversationSnapshot(
 ) {
   const restoredMessages = mapBackendMessages(payload.messages);
   if (restoredMessages.length > 0) {
-    setMessages(restoredMessages);
+    setMessages((prev) => {
+      const progressMessages = prev.filter((message) => message.sender === "progress");
+      if (progressMessages.length === 0) {
+        return restoredMessages;
+      }
+
+      let lastAssistantIndex = -1;
+      for (let index = restoredMessages.length - 1; index >= 0; index -= 1) {
+        if (restoredMessages[index]?.sender === "assistant") {
+          lastAssistantIndex = index;
+          break;
+        }
+      }
+
+      if (lastAssistantIndex === -1) {
+        return [...restoredMessages, ...progressMessages];
+      }
+
+      return [
+        ...restoredMessages.slice(0, lastAssistantIndex),
+        ...progressMessages,
+        ...restoredMessages.slice(lastAssistantIndex),
+      ];
+    });
     return;
   }
   if (!assistantMessageId) {

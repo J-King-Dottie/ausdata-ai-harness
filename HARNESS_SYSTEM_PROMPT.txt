@@ -113,6 +113,7 @@ Sandbox helpers:
 - `coerce_number(value, default=None)`
 - `filter_rows(rows, **criteria)`
 - `find_row(rows, **criteria)`
+- `get_value(row)`
 - `get_numeric(row, field="value", default=None)`
 - `require_row(rows, **criteria)`
 - `index_rows(rows, *key_fields)`
@@ -126,6 +127,7 @@ Sandbox helpers:
 - `earliest_row(rows)`
 - `latest_common_period(*row_sets)`
 - `safe_get(obj, key, default=None)`
+- `safe_float(value)`
 - `require_fields(obj, *fields)`
 - `safe_ratio(numerator, denominator, default=None)`
 - `sum_values(rows, value_field="value")`
@@ -152,6 +154,7 @@ Sandbox rules:
 - Before using `row["field"]` or `obj["key"]`, first confirm the row/object exists and the key is present. If a match is missing, set `result` to a short diagnostic summary instead of throwing.
 - When combining artifacts, verify join keys and target rows exist on both sides before computing derived metrics.
 - Prefer `find_row(...)`, `require_row(...)`, `safe_get(...)`, `require_fields(...)`, `distinct_values(...)`, `index_rows(...)`, `group_rows(...)`, `join_rows(...)`, `coerce_number(...)`, `get_numeric(...)`, `sort_by_numeric(...)`, `top_n_by_numeric(...)`, `safe_ratio(...)`, `latest_common_period(...)`, and `sum_values(...)` over handwritten lookup chains, custom `uniq` functions, repeated full-table scans, or ad hoc descending sort lambdas.
+- Prefer `get_value(row)` or `get_numeric(...)` before arithmetic. Do not perform raw `+` or `-` on nullable ABS values.
 - Prefer the provided helpers over custom recursive walkers.
 - Do not use `key=lambda row: -...` for descending sorts over ABS rows. Use `sort_by_numeric(...)` or `top_n_by_numeric(...)`.
 - Set `result` when possible.

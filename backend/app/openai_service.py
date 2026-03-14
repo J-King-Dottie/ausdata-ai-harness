@@ -283,58 +283,6 @@ def _repair_harness_loop_output(
     return parse_harness_loop_output(repaired_response)
 
 
-def _question_needs_interpretation(user_message: str) -> bool:
-    tokens = set(_tokenize_query(user_message))
-    return any(keyword in tokens for keyword in CLARIFICATION_KEYWORDS)
-
-
-def _question_needs_complex_planning(user_message: str) -> bool:
-    tokens = set(_tokenize_query(user_message))
-    return any(keyword in tokens for keyword in COMPLEX_ANALYSIS_KEYWORDS)
-
-
-def _should_force_clarification(state, user_message: str, loop_index: int) -> bool:
-    needs_interpretation = _question_needs_interpretation(user_message)
-    needs_complex_planning = _question_needs_complex_planning(user_message)
-    if not needs_interpretation and not needs_complex_planning:
-        return False
-    if loop_index < (6 if needs_complex_planning else 7):
-        return False
-    recent = state.loop_history[-6:]
-    if len(recent) < 6:
-        return False
-    recent_ids = [
-        str(((item.get("step") or {}) if isinstance(item, dict) else {}).get("id") or "").strip()
-        for item in recent
-        if isinstance(item, dict)
-    ]
-    if any(step_id in {"compose_final", "propose_plan"} for step_id in recent_ids):
-        return False
-    tool_steps = [step_id for step_id in recent_ids if step_id in {"use_abs_data_tool", "use_web_search_tool", "use_sandbox_tool"}]
-    if len(tool_steps) < 5:
-        return False
-    # If we have been iterating mostly through lookups and analysis without converging,
-    # stop and ask the user to narrow the intent.
-    return True
-
-
-def _build_clarification_plan(user_message: str) -> Dict[str, Any]:
-    prompt = (
-        "I can answer this, but there are a few valid ways to take it. "
-        "Do you want me to focus on the ABS trend itself, likely drivers behind it, or a specific measure such as jobs, filled jobs, or output?"
-    )
-    return {
-        "status": "awaiting_approval",
-        "plan_markdown": prompt,
-        "plan_context": {
-            "question": user_message,
-            "selected_dataset_ids": [],
-            "allow_raw_discovery": False,
-            "await_user_input": True,
-        },
-    }
-
-
 def _compact_user_only_history(messages: List[Dict[str, str]], limit: int = 6) -> List[Dict[str, str]]:
     compact: List[Dict[str, str]] = []
     for item in messages[-limit * 2:]:
@@ -460,7 +408,8 @@ def _compose_best_effort_final(conversation_id: str, user_message: str, state) -
                 "Use only the evidence already gathered in this conversation.\n"
                 "Do not mention loop limits or internal harness mechanics.\n"
                 "If the evidence is incomplete, answer to the best of your ability, "
-                "state what the evidence does show, and end with one short clarification or caveat only if needed.\n\n"
+                "state what the evidence does show, and end with one short caveat only if needed.\n"
+                "Do not ask the user a clarification question in this fallback path.\n\n"
                 f"Current state:\n{json.dumps(payload, ensure_ascii=True)}"
             ),
         },
@@ -1713,6 +1662,18 @@ def _lint_sandbox_code(code: str) -> Optional[str]:
             "Prefer distinct_values(...), group_rows(...), or index_rows(...) instead of handwritten dedupe logic."
         )
 
+    raw_value_arithmetic = re.search(
+        r"(\.get\(\s*['\"]value['\"]\s*\)|\[['\"]value['\"]\]|get_value\s*\([^)]+\)|get_numeric\s*\([^)]+\))\s*[-+]\s*"
+        r"(\.get\(\s*['\"]value['\"]\s*\)|\[['\"]value['\"]\]|get_value\s*\([^)]+\)|get_numeric\s*\([^)]+\))",
+        source,
+        re.IGNORECASE,
+    )
+    if raw_value_arithmetic:
+        return (
+            "The sandbox step performs raw arithmetic on potentially nullable ABS values. "
+            "Use safe_float()/get_value()/get_numeric() first and guard missing values before + or -."
+        )
+
     return None
 
 
@@ -1860,6 +1821,11 @@ def _classify_tool_failure(step_id: str, error_text: str, tool_input: Dict[str, 
     sandbox_code = str(tool_input.get("code") or "")
     result["sandbox_code_preview"] = sandbox_code[:600]
     result["sandbox_code_normalized"] = _normalize_sandbox_code(sandbox_code)[:2000]
+    result["artifact_ids"] = [
+        str(item).strip()
+        for item in (tool_input.get("artifact_ids") or [])
+        if isinstance(item, str) and item.strip()
+    ]
 
     lowered = clean_error.lower()
     if "nonetype' object is not subscriptable" in lowered:
@@ -1902,6 +1868,12 @@ def _classify_tool_failure(step_id: str, error_text: str, tool_input: Dict[str, 
         result["retry_guidance"] = (
             "Do not write custom uniq/dedupe helpers. "
             "Use distinct_values, group_rows, or index_rows to inspect or deduplicate rows."
+        )
+    elif "raw arithmetic on potentially nullable abs values" in lowered:
+        result["error_class"] = "sandbox_null_arithmetic"
+        result["retry_guidance"] = (
+            "Do not add or subtract raw ABS values directly. "
+            "Use get_value/get_numeric/safe_float first and guard missing values before arithmetic."
         )
     else:
         result["error_class"] = "sandbox_generic"
@@ -2108,21 +2080,6 @@ def generate_response(
             _ensure_not_cancelled(conversation_id, cancel_event, f"loop_{loop_index}_start")
             status_callback(f"Loop {loop_index}: reasoning about the next step.")
 
-            if _should_force_clarification(state, active_user_message, loop_index):
-                clarification_plan = _build_clarification_plan(active_user_message)
-                plan_markdown = clarification_plan["plan_markdown"]
-                state.pending_plan = clarification_plan
-                state.messages.append({"role": "assistant", "content": plan_markdown})
-                store.save(state)
-                logger.info(
-                    'Forced clarification cid=%s loop=%s prompt="%s"',
-                    conversation_id,
-                    loop_index,
-                    _truncate(plan_markdown, 280),
-                )
-                status_callback("I need one quick clarification to answer this properly.")
-                return plan_markdown
-
             payload_loop_history, protected_loop_history_count = _payload_loop_history(
                 state,
                 run_loop_start_index,
@@ -2174,7 +2131,8 @@ def generate_response(
                 store.save(state)
                 if _count_recent_recovery_failures(state) >= MAX_CONSECUTIVE_RECOVERY_FAILURES:
                     raise RuntimeError(
-                        "The harness hit repeated model-call failures and stopped after 3 recovery attempts."
+                        "The harness hit repeated model-call failures and stopped after 3 recovery attempts. "
+                        "Please retry or ask a narrower follow-up."
                     )
                 status_callback("That loop hit a model error. Trying again.")
                 continue
@@ -2224,7 +2182,8 @@ def generate_response(
                     store.save(state)
                     if _count_recent_recovery_failures(state) >= MAX_CONSECUTIVE_RECOVERY_FAILURES:
                         raise RuntimeError(
-                            "The harness hit repeated malformed model outputs and stopped after 3 recovery attempts."
+                            "The harness hit repeated malformed model outputs and stopped after 3 recovery attempts. "
+                            "Please retry or ask a narrower follow-up."
                         )
                     status_callback("That loop came back malformed. Trying again.")
                     continue

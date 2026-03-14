@@ -2,13 +2,19 @@
 
 Nisaba is an agentic economic analysis harness for the ABS API.
 
-It is built around a simple production constraint: the agent does not roam the full ABS API blindly at runtime. Instead, it works from a curated, verified layer of datasets and query templates so retrieval stays reliable and analysis stays grounded.
+Rather than exposing ABS through MCP and hoping the model invents valid queries, Nisaba wraps that substrate with a planning loop, curated retrieval layer, Python analysis sandbox, and frontend so it behaves more like a real economic analyst.
 
-Rather than exposing ABS through MCP and hoping the model invents valid queries, Nisaba wraps that server with a planning loop, curated retrieval layer, Python analysis sandbox, and frontend so it behaves more like a real economic analyst.
+The curated layer is the key reliability move. It keeps the runtime surface small, verified, and semantically clear, so the model can spend its effort on economic reasoning and analysis instead of guessing ABS dimensions, code combinations, and fragile API calls.
+
+It is grounded in:
+- [CURATED_ABS_CATALOG.txt]
+- [CURATED_ABS_STRUCTURES.txt]
+
+These files encode tested dataset descriptions, known-working query templates, and guidance about what is literally available in the returned ABS data.
 
 In practice, Nisaba can retrieve curated ABS data, compare datasets, calculate derived metrics, handle matrix-style tables, and generate charts and tables when they help explain the answer.
 
-The raw MCP-style ABS server is still here, but it is the substrate rather than the product.
+Nisaba is built on top of the ABS MCP server provided by [`mcp-server-abs`](https://github.com/seansoreilly/mcp-server-abs). That server is an important foundation: it provides the underlying ABS access layer this harness depends on. Nisaba is the agentic product built around that substrate, not a replacement for it.
 
 The stack includes:
 - curated ABS retrieval logic
@@ -17,7 +23,7 @@ The stack includes:
 - React frontend
 - FastAPI backend
 
-Produced by [Dottie AI Studio](https://dottieaistudio.com.au/) · Powered by [mcp-server-abs](https://github.com/seansoreilly/mcp-server-abs).
+Produced by [Dottie AI Studio](https://dottieaistudio.com.au/) · Built on top of [mcp-server-abs](https://github.com/seansoreilly/mcp-server-abs).
 
 ## Requirements
 
@@ -72,19 +78,6 @@ cd "C:\Users\jorda\OneDrive\Documents\Dottie\abs-mcp"; .\start-demo.ps1 -SkipIns
 - [start-dev.ps1](/mnt/c/Users/jorda/OneDrive/Documents/Dottie/abs-mcp/start-dev.ps1): local dev with hot reload
 - [start-demo.ps1](/mnt/c/Users/jorda/OneDrive/Documents/Dottie/abs-mcp/start-demo.ps1): built local demo
 - [run.py](/mnt/c/Users/jorda/OneDrive/Documents/Dottie/abs-mcp/run.py): Python entrypoint used by the demo flow
-
-## Core idea
-
-The harness prefers the curated layer first:
-
-- [CURATED_ABS_CATALOG.txt](/mnt/c/Users/jorda/OneDrive/Documents/Dottie/abs-mcp/CURATED_ABS_CATALOG.txt)
-- [CURATED_ABS_STRUCTURES.txt](/mnt/c/Users/jorda/OneDrive/Documents/Dottie/abs-mcp/CURATED_ABS_STRUCTURES.txt)
-
-These files encode tested dataset descriptions, query templates, and guidance about what is literally available in the returned ABS data.
-
-That curated layer is what makes the system dependable. In agentic production systems, this is a known grounding pattern: keep the runtime surface small, verified, and semantically clear. Instead of asking the model to infer arbitrary ABS dimensions and codes, Nisaba starts from validated patterns and then uses sandbox analysis to narrow, combine, and interpret the results.
-
-The alternative vision, where the agent ranges freely across the full ABS API, is possible in principle but much less reliable in practice. It needs broader discovery, more structure inspection, more recovery loops, and still has a lower reliability ceiling. Nisaba takes the pragmatic path: do the hard discovery work offline, encode it in the curated layer, and let the runtime agent stay fast, cautious, and dependable.
 
 ## Notes
 
