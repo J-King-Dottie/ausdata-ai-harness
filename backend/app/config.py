@@ -17,14 +17,13 @@ load_dotenv(ENV_PATH)
 class Settings(BaseModel):
     openai_api_key: str
     openai_model: str = "gpt-5.4"
-    openai_reasoning_effort: str = "medium"
+    openai_reasoning_effort: str = "low"
     node_binary: str = "node"
     python_binary: str = "python3"
     mcp_bridge_path: Path = BASE_DIR / "build" / "mcpBridge.js"
     runtime_dir: Path = BASE_DIR / "runtime"
     max_loops: int = 15
-    openai_timeout_seconds: int = 90
-    openai_max_output_tokens: int = 2400
+    openai_timeout_seconds: int = 180
 
 
 @lru_cache(maxsize=1)
@@ -60,9 +59,5 @@ def get_settings() -> Settings:
     timeout = os.getenv("OPENAI_TIMEOUT_SECONDS")
     if timeout:
         overrides["openai_timeout_seconds"] = int(timeout)
-
-    max_output_tokens = os.getenv("OPENAI_MAX_OUTPUT_TOKENS")
-    if max_output_tokens:
-        overrides["openai_max_output_tokens"] = int(max_output_tokens)
 
     return Settings(openai_api_key=api_key, **overrides)

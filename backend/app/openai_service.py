@@ -17,6 +17,7 @@ from .config import get_settings
 from .curated_abs import get_curated_dataset, list_curated_datasets, upsert_ai_curated_dataset
 from .harness.parser import HarnessParserError, parse_harness_loop_output
 from .harness.prompt_builder import (
+    build_sandbox_codegen_messages,
     build_loop_payload,
     build_model_messages,
     load_system_prompt,
@@ -187,6 +188,79 @@ def _extract_openai_output_text(response_data: Dict[str, Any]) -> str:
     return "".join(fragments).strip()
 
 
+def _summarize_openai_response(response_data: Dict[str, Any]) -> str:
+    if not isinstance(response_data, dict):
+        return _truncate(str(response_data), 600)
+
+    def _present(value: Any) -> bool:
+        return value is not None and value != ""
+
+    summary: Dict[str, Any] = {}
+    for key in ("id", "status", "model", "output_text"):
+        value = response_data.get(key)
+        if _present(value):
+            summary[key] = _truncate(str(value), 240)
+
+    for key in ("incomplete_details", "error", "usage"):
+        value = response_data.get(key)
+        if _present(value):
+            try:
+                summary[key] = json.loads(json.dumps(value, ensure_ascii=True))
+            except Exception:
+                summary[key] = _truncate(str(value), 240)
+
+    output = response_data.get("output")
+    if isinstance(output, list):
+        output_summary = []
+        for item in output[:4]:
+            if not isinstance(item, dict):
+                output_summary.append(_truncate(str(item), 120))
+                continue
+            entry: Dict[str, Any] = {}
+            item_type = item.get("type")
+            if _present(item_type):
+                entry["type"] = item_type
+            item_status = item.get("status")
+            if _present(item_status):
+                entry["status"] = item_status
+            for key in ("id", "role"):
+                value = item.get(key)
+                if _present(value):
+                    entry[key] = value
+            content = item.get("content")
+            if isinstance(content, list):
+                content_summary = []
+                for block in content[:4]:
+                    if not isinstance(block, dict):
+                        content_summary.append(_truncate(str(block), 120))
+                        continue
+                    block_entry: Dict[str, Any] = {}
+                    block_type = block.get("type")
+                    if _present(block_type):
+                        block_entry["type"] = block_type
+                    block_status = block.get("status")
+                    if _present(block_status):
+                        block_entry["status"] = block_status
+                    text_value = block.get("text")
+                    if _present(text_value):
+                        block_entry["text_preview"] = _truncate(str(text_value), 160)
+                    refusal = block.get("refusal")
+                    if _present(refusal):
+                        block_entry["refusal_preview"] = _truncate(str(refusal), 160)
+                    for key in ("id",):
+                        value = block.get(key)
+                        if _present(value):
+                            block_entry[key] = value
+                    if block_entry:
+                        content_summary.append(block_entry)
+                entry["content"] = content_summary
+            if entry:
+                output_summary.append(entry)
+        summary["output"] = output_summary
+
+    return _truncate(json.dumps(summary, ensure_ascii=True), 1200)
+
+
 def _call_model(messages: List[Dict[str, str]], *, reasoning_effort: Optional[str] = None) -> str:
     openai_messages: List[Dict[str, Any]] = []
     for message in messages:
@@ -214,7 +288,6 @@ def _call_model(messages: List[Dict[str, str]], *, reasoning_effort: Optional[st
 
     payload: Dict[str, Any] = {
         "model": settings.openai_model,
-        "max_output_tokens": settings.openai_max_output_tokens,
         "input": openai_messages,
         "reasoning": {
             "effort": reasoning_effort or settings.openai_reasoning_effort,
@@ -243,44 +316,80 @@ def _call_model(messages: List[Dict[str, str]], *, reasoning_effort: Optional[st
             f"OpenAI responses error {response.status_code}: {response.text.strip()}"
         )
 
-    text = _extract_openai_output_text(response.json())
+    response_data = response.json()
+    text = _extract_openai_output_text(response_data)
     if not text:
-        raise RuntimeError("OpenAI returned an empty response.")
+        raise RuntimeError(
+            "OpenAI returned an empty response. "
+            f"Response summary: {_summarize_openai_response(response_data)}"
+        )
     return text
 
 
-def _repair_harness_loop_output(
+def _call_model_text(
+    messages: List[Dict[str, str]],
     *,
-    payload: Dict[str, Any],
-    raw_model_response: str,
-    parse_error: HarnessParserError,
-) -> Dict[str, Any]:
-    repair_messages = [
-        {"role": "system", "content": load_system_prompt()},
-        {
-            "role": "user",
-            "content": (
-                "Loop payload for this cycle:\n"
-                f"{json.dumps(payload, ensure_ascii=True)}\n\n"
-                "Return strict JSON only."
-            ),
+    reasoning_effort: Optional[str] = None,
+) -> str:
+    openai_messages: List[Dict[str, Any]] = []
+    for message in messages:
+        role = str(message.get("role") or "user").strip().lower()
+        content = str(message.get("content") or "").strip()
+        if not content:
+            continue
+        if role not in {"system", "user", "assistant", "developer"}:
+            role = "user"
+        content_type = "output_text" if role == "assistant" else "input_text"
+        openai_messages.append(
+            {
+                "role": role,
+                "content": [
+                    {
+                        "type": content_type,
+                        "text": content,
+                    }
+                ],
+            }
+        )
+
+    if not openai_messages:
+        raise RuntimeError("No model input was generated for the sandbox code step.")
+
+    payload: Dict[str, Any] = {
+        "model": settings.openai_model,
+        "input": openai_messages,
+        "reasoning": {
+            "effort": reasoning_effort or "low",
         },
-        {"role": "assistant", "content": raw_model_response},
-        {
-            "role": "user",
-            "content": (
-                "Your previous output was invalid for the harness.\n"
-                f"Parser error: {str(parse_error)}\n\n"
-                "Return one corrected JSON object only.\n"
-                "It must contain: step, progress_note, model_output.\n"
-                "Do not output a JSON schema, validation schema, or object with keys like type/properties/required.\n"
-                "Return an actual loop decision instance.\n"
-                "Do not include any explanation outside the JSON."
-            ),
+    }
+
+    response = httpx.post(
+        OPENAI_RESPONSES_URL,
+        headers={
+            "Authorization": f"Bearer {settings.openai_api_key}",
+            "Content-Type": "application/json",
         },
-    ]
-    repaired_response = _call_model(repair_messages)
-    return parse_harness_loop_output(repaired_response)
+        json=payload,
+        timeout=settings.openai_timeout_seconds,
+    )
+    if response.status_code >= 400:
+        if response.status_code == 429:
+            raise RuntimeError(
+                "OpenAI rate limit reached for this sandbox code step. "
+                "Please retry in a moment or ask a narrower follow-up."
+            )
+        raise RuntimeError(
+            f"OpenAI responses error {response.status_code}: {response.text.strip()}"
+        )
+
+    response_data = response.json()
+    text = _extract_openai_output_text(response_data)
+    if not text:
+        raise RuntimeError(
+            "OpenAI returned an empty response for the sandbox code step. "
+            f"Response summary: {_summarize_openai_response(response_data)}"
+        )
+    return text
 
 
 def _compact_user_only_history(messages: List[Dict[str, str]], limit: int = 6) -> List[Dict[str, str]]:
@@ -732,6 +841,9 @@ def _summarize_tool_input(tool_input: Dict[str, Any]) -> str:
     code = str(tool_input.get("code") or "").strip()
     if code:
         parts.append(f"code_preview={_truncate(code, 120)}")
+    sandbox_request = str(tool_input.get("sandbox_request") or "").strip()
+    if sandbox_request:
+        parts.append(f"sandbox_request={_truncate(sandbox_request, 160)}")
     return "; ".join(parts) if parts else "no key inputs"
 
 
@@ -1672,6 +1784,30 @@ def _validate_sandbox_artifact_references(code: str, artifact_ids: List[str]) ->
 def _lint_sandbox_code(code: str) -> Optional[str]:
     source = str(code or "")
 
+    invented_artifact_helper = re.search(
+        r"\b(create_artifact|save_artifact|make_artifact|create_json_artifact|create_text_artifact)\s*\(",
+        source,
+        re.IGNORECASE,
+    )
+    if invented_artifact_helper:
+        return (
+            "The sandbox step called an artifact helper that does not exist. "
+            "Do not invent helper names. If you need to save output, use save_json(...) or save_text(...). "
+            "Otherwise write normal Python."
+        )
+
+    positional_filter_rows = re.search(
+        r"\bfilter_rows\s*\(\s*[^,\n\)]+\s*,\s*[^A-Za-z_\n\)][^,\n\)]*",
+        source,
+        re.IGNORECASE,
+    )
+    if positional_filter_rows:
+        return (
+            "The sandbox step called filter_rows(...) with unsupported positional arguments. "
+            "Use filter_rows(rows, FIELD_code='X', OTHER_code='Y') with keyword equality filters only. "
+            "If you need more complex filtering, write normal Python."
+        )
+
     brittle_descending_sort = re.search(
         r"key\s*=\s*lambda\s+[^:]+:\s*-\s*[^\n,)]{3,}",
         source,
@@ -1706,23 +1842,94 @@ def _lint_sandbox_code(code: str) -> Optional[str]:
     return None
 
 
+def _generate_sandbox_code(
+    *,
+    tool_input: Dict[str, Any],
+    state,
+    loop_payload: Dict[str, Any],
+) -> str:
+    code = str(tool_input.get("code") or "").strip()
+    if code:
+        return code
+
+    sandbox_request = str(tool_input.get("sandbox_request") or "").strip()
+    if not sandbox_request:
+        raise RuntimeError("sandbox_tool requires either code or sandbox_request")
+
+    artifact_ids = [
+        str(item).strip()
+        for item in (tool_input.get("artifact_ids") or [])
+        if isinstance(item, str) and item.strip()
+    ]
+
+    logger.info(
+        'Sandbox codegen request brief="%s" artifacts=%s',
+        _truncate(sandbox_request, 280),
+        artifact_ids,
+    )
+
+    try:
+        generated = _call_model_text(
+            build_sandbox_codegen_messages(
+                payload=loop_payload,
+                sandbox_request=sandbox_request,
+                artifact_ids=artifact_ids,
+            ),
+            reasoning_effort="low",
+        ).strip()
+    except Exception as exc:
+        logger.exception(
+            'Sandbox codegen failed brief="%s" artifacts=%s error=%s',
+            _truncate(sandbox_request, 280),
+            artifact_ids,
+            exc,
+        )
+        raise RuntimeError(
+            "Sandbox code generation failed. "
+            f"Brief: {_truncate(sandbox_request, 220)}. "
+            f"Artifacts: {artifact_ids}. "
+            f"Underlying error: {exc}"
+        ) from exc
+    if generated.startswith("```"):
+        generated = re.sub(r"^```(?:python)?\s*", "", generated)
+        generated = re.sub(r"\s*```$", "", generated)
+        generated = generated.strip()
+    if not generated:
+        raise RuntimeError("Sandbox code generator returned empty code.")
+    logger.info(
+        'Sandbox codegen output preview="%s"',
+        _truncate(generated, 280),
+    )
+    return generated
+
+
 def _execute_sandbox_tool(
     *,
     tool_input: Dict[str, Any],
     state,
     conversation_id: str,
+    loop_payload: Dict[str, Any],
+    status_callback: Optional[Callable[[str], None]] = None,
 ) -> Dict[str, Any]:
+    status_callback = status_callback or (lambda _message: None)
     artifact_ids = tool_input.get("artifact_ids")
-    code = str(tool_input.get("code") or "").strip()
+    code = _generate_sandbox_code(tool_input=tool_input, state=state, loop_payload=loop_payload)
+    tool_input["code"] = code
+    status_callback("Code generated.")
 
     if not isinstance(artifact_ids, list) or not all(isinstance(item, str) and item.strip() for item in artifact_ids):
         raise RuntimeError("sandbox_tool requires a non-empty artifact_ids array of strings")
-    if not code:
-        raise RuntimeError("sandbox_tool requires code")
     _validate_sandbox_artifact_references(code, artifact_ids)
     lint_error = _lint_sandbox_code(code)
     if lint_error:
         raise RuntimeError(lint_error)
+    try:
+        compile(code, "<sandbox>", "exec")
+    except SyntaxError as exc:
+        raise RuntimeError(
+            "Sandbox code generation produced invalid Python. "
+            f"{exc.__class__.__name__}: {exc}"
+        ) from exc
 
     allowed_artifacts = {
         artifact["artifact_id"]: artifact
@@ -1755,6 +1962,7 @@ def _execute_sandbox_tool(
             "Sandbox execution failed:\n"
             f"STDOUT: {completed.stdout[:1000]}\nSTDERR: {completed.stderr[:1000]}"
         )
+    status_callback("Code run.")
 
     try:
         runner_result = json.loads(completed.stdout.strip())
@@ -1778,6 +1986,7 @@ def _execute_sandbox_tool(
             "result": runner_result.get("result"),
             "stdout": str(runner_result.get("stdout") or "").strip()[:4000],
             "created_artifact_ids": created_ids,
+            "generated_code_preview": code[:600],
         },
     )
 
@@ -1969,8 +2178,10 @@ def _classify_tool_failure(step_id: str, error_text: str, tool_input: Dict[str, 
         return result
 
     sandbox_code = str(tool_input.get("code") or "")
+    sandbox_request = str(tool_input.get("sandbox_request") or "")
     result["sandbox_code_preview"] = sandbox_code[:600]
     result["sandbox_code_normalized"] = _normalize_sandbox_code(sandbox_code)[:2000]
+    result["sandbox_request"] = sandbox_request[:1000]
     result["artifact_ids"] = [
         str(item).strip()
         for item in (tool_input.get("artifact_ids") or [])
@@ -2041,10 +2252,16 @@ def _sandbox_retry_conflict(state, tool_input: Dict[str, Any]) -> Optional[str]:
     prior_data = recent_failure.get("result_data") if isinstance(recent_failure.get("result_data"), dict) else {}
     prior_normalized = str(prior_data.get("sandbox_code_normalized") or "").strip()
     current_normalized = _normalize_sandbox_code(tool_input.get("code"))
-    if not prior_normalized or not current_normalized:
-        return None
+    prior_request = str(prior_data.get("sandbox_request") or "").strip()
+    current_request = str(tool_input.get("sandbox_request") or "").strip()
 
-    if prior_normalized == current_normalized:
+    same_attempt = False
+    if prior_normalized and current_normalized and prior_normalized == current_normalized:
+        same_attempt = True
+    elif prior_request and current_request and prior_request == current_request:
+        same_attempt = True
+
+    if same_attempt:
         guidance = str(prior_data.get("retry_guidance") or "").strip()
         return (
             "The proposed sandbox step is materially the same as the most recent failed sandbox attempt. "
@@ -2063,6 +2280,18 @@ def _count_recent_recovery_failures(state) -> int:
         result_data = item.get("result_data") if isinstance(item.get("result_data"), dict) else {}
         kind = str(result_data.get("kind") or "").strip()
         if kind not in {"model_call_error", "harness_parse_error"}:
+            break
+        count += 1
+    return count
+
+
+def _count_recent_harness_parse_failures(state) -> int:
+    count = 0
+    for item in reversed(state.loop_history):
+        if not isinstance(item, dict):
+            break
+        result_data = item.get("result_data") if isinstance(item.get("result_data"), dict) else {}
+        if str(result_data.get("kind") or "").strip() != "harness_parse_error":
             break
         count += 1
     return count
@@ -2140,7 +2369,7 @@ def generate_response(
     try:
         state = store.load(conversation_id)
         _ensure_runtime_dirs(conversation_id)
-        saved_progress_messages: list[str] = []
+        saved_progress_messages: list[str] = ["Starting analysis"]
 
         def emit_status(message: str) -> None:
             normalized = str(message or "").strip()
@@ -2305,54 +2534,65 @@ def generate_response(
             try:
                 parsed = parse_harness_loop_output(raw_model_response)
             except HarnessParserError as exc:
+                diagnostics = exc.diagnostics if isinstance(getattr(exc, "diagnostics", None), dict) else {}
                 logger.warning(
-                    "Harness parse failed cid=%s loop=%s error=%s raw=%s",
+                    "Harness parse failed cid=%s loop=%s error=%s failure_class=%s candidate_count=%s validation_path=%s top_level_keys=%s truncated_suspected=%s raw_len=%s raw=%s",
                     conversation_id,
                     loop_index,
                     str(exc),
+                    diagnostics.get("failure_class"),
+                    diagnostics.get("candidate_count"),
+                    diagnostics.get("validation_path"),
+                    diagnostics.get("top_level_keys_detected") or diagnostics.get("normalized_top_level_keys"),
+                    diagnostics.get("truncated_suspected"),
+                    diagnostics.get("raw_length"),
                     _truncate(raw_model_response, 600),
                 )
-                try:
-                    parsed = _repair_harness_loop_output(
-                        payload=payload,
-                        raw_model_response=raw_model_response,
-                        parse_error=exc,
-                    )
-                except HarnessParserError as repair_exc:
-                    logger.warning(
-                        "Harness repair parse failed cid=%s loop=%s error=%s",
-                        conversation_id,
-                        loop_index,
-                        str(repair_exc),
-                    )
-                    _record_loop_feedback(
-                        state,
-                        step={
-                            "id": "invalid_model_output",
-                            "summary": "Model returned malformed harness JSON",
-                        },
-                        progress_note="Recovering from an invalid model response.",
-                        result_summary=(
-                            "The model returned malformed harness JSON and the repair pass also failed.\n"
-                            f"Initial parse error: {str(exc)}\n"
-                            f"Repair parse error: {str(repair_exc)}\n"
-                            f"Raw output preview: {_truncate(raw_model_response, 600)}"
+                next_parse_retry = _count_recent_harness_parse_failures(state) + 1
+                if next_parse_retry == 1:
+                    progress_text = "That step failed output validation. Retrying with stricter formatting."
+                elif next_parse_retry == 2:
+                    progress_text = "That step failed output validation again. Retrying with ultra-strict formatting."
+                else:
+                    progress_text = "That step failed output validation repeatedly."
+
+                _record_loop_feedback(
+                    state,
+                    step={
+                        "id": "invalid_model_output",
+                        "summary": "Model returned malformed harness JSON",
+                    },
+                    progress_note=progress_text,
+                    result_summary=(
+                        "The model returned malformed harness JSON.\n"
+                        f"Parse error: {str(exc)}\n"
+                        "Correction required: stay with the intended loop decision, but return one literal top-level JSON object with "
+                        "`step`, `progress_note`, and `model_output` only. "
+                        "Do not include prose, markdown fences, quoted JSON, escaped JSON, or nested wrapper objects.\n"
+                        f"Raw output preview: {_truncate(raw_model_response, 600)}"
+                    ),
+                    result_data={
+                        "kind": "harness_parse_error",
+                        "parse_error": str(exc),
+                        "parse_diagnostics": diagnostics,
+                        "retry_stage": next_parse_retry,
+                        "raw_output_preview": _truncate(raw_model_response, 600),
+                        "correction_instructions": (
+                            "Return one literal top-level JSON object only. "
+                            "Required keys: step, progress_note, model_output. "
+                            "For tool steps, model_output must contain tool_name and tool_input as an object. "
+                            "Do not rethink the task; fix the output shape."
                         ),
-                        result_data={
-                            "kind": "harness_parse_error",
-                            "initial_error": str(exc),
-                            "repair_error": str(repair_exc),
-                            "raw_output_preview": _truncate(raw_model_response, 600),
-                        },
+                    },
+                )
+                store.save(state)
+                if _count_recent_recovery_failures(state) >= MAX_CONSECUTIVE_RECOVERY_FAILURES:
+                    raise RuntimeError(
+                        "The harness hit repeated malformed model outputs and stopped after 3 recovery attempts. "
+                        "Please retry or ask a narrower follow-up."
                     )
-                    store.save(state)
-                    if _count_recent_recovery_failures(state) >= MAX_CONSECUTIVE_RECOVERY_FAILURES:
-                        raise RuntimeError(
-                            "The harness hit repeated malformed model outputs and stopped after 3 recovery attempts. "
-                            "Please retry or ask a narrower follow-up."
-                        )
-                    emit_status("That loop came back malformed. Trying again.")
-                    continue
+                emit_status(progress_text)
+                continue
 
             step = parsed["step"]
             progress_note = parsed["progress_note"]
@@ -2433,6 +2673,8 @@ def generate_response(
                         tool_input=model_output["tool_input"],
                         state=state,
                         conversation_id=conversation_id,
+                        loop_payload=payload,
+                        status_callback=emit_status,
                     )
                 else:
                     raise RuntimeError(f"Unsupported step id: {step['id']}")

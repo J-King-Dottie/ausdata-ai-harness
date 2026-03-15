@@ -90,23 +90,6 @@ async def healthcheck():
     return {"status": "ok"}
 
 
-if frontend_dist.exists():
-    app.mount("/assets", StaticFiles(directory=str(frontend_dist / "assets")), name="frontend-assets")
-
-    @app.get("/", include_in_schema=False)
-    async def frontend_index():
-        return FileResponse(frontend_dist / "index.html")
-
-    @app.get("/{full_path:path}", include_in_schema=False)
-    async def frontend_catchall(full_path: str):
-        if full_path.startswith("api/") or full_path == "health":
-            raise HTTPException(status_code=404, detail="Not found")
-        target = frontend_dist / full_path
-        if target.exists() and target.is_file():
-            return FileResponse(target)
-        return FileResponse(frontend_dist / "index.html")
-
-
 def _truncate(text: str, length: int = 280) -> str:
     clean = text.replace("\n", " ").strip()
     return clean if len(clean) <= length else clean[: length - 1] + "…"
@@ -194,13 +177,13 @@ async def _run_generation_job(
             state.active_run_id = None
             store.save(state)
     except Exception as exc:
-        logger.exception(
-            "Failed to generate response cid=%s error=%s",
-            conversation_id,
-            exc,
-        )
         state = store.load(conversation_id)
         if state.active_run_id == run_id:
+            logger.exception(
+                "Failed to generate response cid=%s error=%s",
+                conversation_id,
+                exc,
+            )
             state.run_status = "failed"
             state.latest_progress = ""
             state.latest_error = str(exc)
@@ -209,6 +192,13 @@ async def _run_generation_job(
             state.active_run_loop_count = None
             state.active_run_artifact_count = None
             store.save(state)
+        else:
+            logger.info(
+                "Ignoring late generation failure for stale run cid=%s run_id=%s error=%s",
+                conversation_id,
+                run_id,
+                exc,
+            )
     else:
         logger.info(
             'Response ready cid=%s preview="%s"',
@@ -314,3 +304,20 @@ async def reset(request: ResetRequest):
     reset_conversation_runtime(request.conversation_id)
     logger.info("Conversation cleared cid=%s", request.conversation_id)
     return {"status": "cleared"}
+
+
+if frontend_dist.exists():
+    app.mount("/assets", StaticFiles(directory=str(frontend_dist / "assets")), name="frontend-assets")
+
+    @app.get("/", include_in_schema=False)
+    async def frontend_index():
+        return FileResponse(frontend_dist / "index.html")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def frontend_catchall(full_path: str):
+        if full_path.startswith("api/") or full_path == "health":
+            raise HTTPException(status_code=404, detail="Not found")
+        target = frontend_dist / full_path
+        if target.exists() and target.is_file():
+            return FileResponse(target)
+        return FileResponse(frontend_dist / "index.html")

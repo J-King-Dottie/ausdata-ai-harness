@@ -326,6 +326,28 @@ body {
   width: min(980px, 100%);
 }
 
+.progress-step-subtask {
+  margin-left: 18px;
+}
+
+.progress-step-subtask .progress-line {
+  color: #8f9b92;
+}
+
+.progress-step-subtask .progress-rail {
+  width: 0;
+  min-width: 0;
+}
+
+.progress-step-subtask .progress-rail::before,
+.progress-step-subtask .progress-rail::after {
+  content: none;
+}
+
+.progress-step-subtask .progress-marker {
+  display: none;
+}
+
 .progress-rail {
   width: 12px;
   min-width: 12px;
@@ -396,6 +418,13 @@ body {
 
 .bubble-row.progress:last-of-type .progress-step {
   margin-bottom: 1rem;
+}
+
+.bubble-row.progress + .bubble-row.progress .progress-step-subtask .progress-rail::before,
+.bubble-row.progress:has(+ .bubble-row.progress) .progress-step-subtask .progress-rail::after,
+.progress-step-subtask .progress-rail::before,
+.progress-step-subtask .progress-rail::after {
+  content: none;
 }
 
 

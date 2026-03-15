@@ -6,11 +6,14 @@ from typing import Any, Dict, List
 
 
 PROMPT_PATH = Path(__file__).resolve().parents[3] / "HARNESS_SYSTEM_PROMPT.txt"
+SANDBOX_CODEGEN_PROMPT_PATH = Path(__file__).resolve().parents[3] / "SANDBOX_CODEGEN_SYSTEM_PROMPT.txt"
 SOUL_PATH = Path(__file__).resolve().parents[3] / "SOUL.md"
 CURATION_GUIDE_PATH = Path(__file__).resolve().parents[3] / "ABS_CURATION_AGENT.md"
 
 _PROMPT_CACHE = ""
 _PROMPT_CACHE_KEY = ""
+_SANDBOX_PROMPT_CACHE = ""
+_SANDBOX_PROMPT_CACHE_KEY = ""
 
 
 def _compact_soul_text(soul_text: str) -> str:
@@ -107,6 +110,17 @@ def load_system_prompt(include_curation_guide: bool = False) -> str:
     return _PROMPT_CACHE
 
 
+def load_sandbox_codegen_system_prompt() -> str:
+    global _SANDBOX_PROMPT_CACHE, _SANDBOX_PROMPT_CACHE_KEY
+    prompt_text = SANDBOX_CODEGEN_PROMPT_PATH.read_text(encoding="utf-8").strip()
+    cache_key = str(hash(prompt_text))
+    if _SANDBOX_PROMPT_CACHE and _SANDBOX_PROMPT_CACHE_KEY == cache_key:
+        return _SANDBOX_PROMPT_CACHE
+    _SANDBOX_PROMPT_CACHE = prompt_text
+    _SANDBOX_PROMPT_CACHE_KEY = cache_key
+    return _SANDBOX_PROMPT_CACHE
+
+
 def build_loop_payload(
     *,
     user_message: str,
@@ -153,11 +167,23 @@ def build_loop_payload(
     return trimmed_payload
 
 
+def _count_recent_parse_failures(loop_history: List[Dict[str, Any]]) -> int:
+    count = 0
+    for item in reversed(loop_history):
+        if not isinstance(item, dict):
+            break
+        result_data = item.get("result_data") if isinstance(item.get("result_data"), dict) else {}
+        if str(result_data.get("kind") or "").strip() != "harness_parse_error":
+            break
+        count += 1
+    return count
+
+
 def build_model_messages(payload: Dict[str, Any]) -> List[Dict[str, str]]:
     include_curation_guide = _needs_curation_guide(
         payload.get("plan_state") if isinstance(payload.get("plan_state"), dict) else None
     )
-    return [
+    messages = [
         {"role": "system", "content": load_system_prompt(include_curation_guide=include_curation_guide)},
         {
             "role": "user",
@@ -165,6 +191,132 @@ def build_model_messages(payload: Dict[str, Any]) -> List[Dict[str, str]]:
                 "Loop payload for this cycle:\n"
                 f"{json.dumps(payload, ensure_ascii=True)}\n\n"
                 "Return strict JSON only."
+            ),
+        },
+    ]
+    loop_history = payload.get("loop_history") if isinstance(payload.get("loop_history"), list) else []
+    parse_failures = _count_recent_parse_failures(loop_history)
+    if parse_failures == 1:
+        messages.append(
+            {
+                "role": "user",
+                "content": (
+                    "Your previous loop failed output validation.\n"
+                    "Do not rethink the task. Return the next intended loop decision as one literal JSON object only.\n"
+                    "Required top-level keys: step, progress_note, model_output.\n"
+                    "Do not include prose, markdown fences, quoted JSON, escaped JSON, or wrapper objects."
+                ),
+            }
+        )
+    elif parse_failures >= 2:
+        messages.append(
+            {
+                "role": "user",
+                "content": (
+                    "Output formatting correction is mandatory.\n"
+                    "Return exactly one literal top-level JSON object.\n"
+                    "The object itself must contain only the normal harness fields for this decision: step, progress_note, model_output.\n"
+                    "For tool steps, use this exact shape:\n"
+                    "{\"step\":{\"id\":\"use_sandbox_tool\",\"summary\":\"...\"},\"progress_note\":\"...\",\"model_output\":{\"tool_name\":\"sandbox_tool\",\"tool_input\":{\"artifact_ids\":[\"artifact-001\"],\"sandbox_request\":\"Inspect the artifact, isolate the exact comparable slice, save a narrowed artifact if needed, then prepare the calculation output.\"}}}\n"
+                    "No prose. No markdown fences. No quoted JSON. No escaped JSON. Do not rethink the task; only return a valid harness payload."
+                ),
+            }
+        )
+    return messages
+
+
+def _extract_artifact_refs(value: Any) -> set[str]:
+    refs: set[str] = set()
+    if isinstance(value, str):
+        text = value.strip()
+        if text.startswith("artifact-"):
+            refs.add(text)
+        return refs
+    if isinstance(value, list):
+        for item in value:
+            refs.update(_extract_artifact_refs(item))
+        return refs
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if key == "artifact_id" and isinstance(item, str) and item.strip():
+                refs.add(item.strip())
+            else:
+                refs.update(_extract_artifact_refs(item))
+        return refs
+    return refs
+
+
+def _filter_codegen_loop_history(loop_history: List[Dict[str, Any]], artifact_ids: set[str]) -> List[Dict[str, Any]]:
+    if not loop_history:
+        return []
+
+    filtered: List[Dict[str, Any]] = []
+    for index, item in enumerate(loop_history):
+        if not isinstance(item, dict):
+            continue
+        keep = index >= len(loop_history) - 3
+        if not keep:
+            step = item.get("step") if isinstance(item.get("step"), dict) else {}
+            result_data = item.get("result_data") if isinstance(item.get("result_data"), dict) else {}
+            tool_input = item.get("tool_input") if isinstance(item.get("tool_input"), dict) else {}
+            step_id = str(step.get("id") or "").strip()
+            item_artifacts = (
+                _extract_artifact_refs(tool_input)
+                | _extract_artifact_refs(result_data)
+                | _extract_artifact_refs(item.get("result_summary"))
+            )
+            if artifact_ids and item_artifacts.intersection(artifact_ids):
+                keep = True
+            elif str(result_data.get("kind") or "").strip() in {
+                "tool_failure",
+                "harness_parse_error",
+                "sandbox_output",
+                "sandbox_result",
+            }:
+                keep = True
+            elif step_id == "use_sandbox_tool":
+                keep = True
+        if keep:
+            filtered.append(item)
+
+    return filtered[-8:]
+
+
+def build_sandbox_codegen_messages(
+    *,
+    payload: Dict[str, Any],
+    sandbox_request: str,
+    artifact_ids: List[str],
+) -> List[Dict[str, str]]:
+    codegen_payload = dict(payload)
+    artifact_id_set = {str(item).strip() for item in artifact_ids if str(item).strip()}
+    task = dict(codegen_payload.get("task") or {})
+    task["mode"] = "sandbox_codegen"
+    task["sandbox_request"] = str(sandbox_request or "").strip()
+    task["artifact_ids"] = sorted(artifact_id_set)
+    codegen_payload["task"] = task
+    codegen_payload.pop("chat_history", None)
+
+    artifacts = codegen_payload.get("available_artifacts")
+    if isinstance(artifacts, list):
+        codegen_payload["available_artifacts"] = [
+            item
+            for item in artifacts
+            if isinstance(item, dict) and str(item.get("artifact_id") or "").strip() in artifact_id_set
+        ]
+
+    loop_history = codegen_payload.get("loop_history")
+    if isinstance(loop_history, list):
+        codegen_payload["loop_history"] = _filter_codegen_loop_history(loop_history, artifact_id_set)
+
+    return [
+        {"role": "system", "content": load_sandbox_codegen_system_prompt()},
+        {
+            "role": "user",
+            "content": (
+                "Loop payload for this sandbox code step:\n"
+                f"{json.dumps(codegen_payload, ensure_ascii=True)}\n\n"
+                "Return Python code only."
             ),
         },
     ]

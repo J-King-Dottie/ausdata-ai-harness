@@ -811,6 +811,10 @@ function appendProgressMessage(
   });
 }
 
+function isProgressSubtask(content: string) {
+  return content === "Code generated." || content === "Code run.";
+}
+
 function ProductTitle() {
   return (
     <div className="product-title">
@@ -1163,7 +1167,8 @@ function App() {
         );
       }
       const payload = (await response.json()) as ChatAcceptedResponse;
-      const initialProgress = simplifyStatusMessage(String(payload.latest_progress ?? ""));
+      const rawInitialProgress = String(payload.latest_progress ?? "").trim();
+      const initialProgress = simplifyStatusMessage(rawInitialProgress) || rawInitialProgress;
       if (initialProgress && initialProgress !== lastProgressRef.current) {
         lastProgressRef.current = initialProgress;
         appendProgressMessage(setMessages, assistantMessage.id, initialProgress);
@@ -1207,7 +1212,8 @@ function App() {
         setError((prev) => (prev === "Connection interrupted. Retrying..." ? null : prev));
 
         const runStatus = String(payload.run_status ?? "").trim().toLowerCase();
-        const latestProgress = simplifyStatusMessage(String(payload.latest_progress ?? ""));
+        const rawLatestProgress = String(payload.latest_progress ?? "").trim();
+        const latestProgress = simplifyStatusMessage(rawLatestProgress) || rawLatestProgress;
         const latestError = String(payload.latest_error ?? "").trim();
 
         if (latestProgress && latestProgress !== lastProgressRef.current) {
@@ -1397,7 +1403,7 @@ function App() {
           {messages.map((message) =>
             message.sender === "progress" ? (
               <article key={message.id} className="bubble-row progress">
-                <div className="progress-step">
+                <div className={`progress-step${isProgressSubtask(message.content) ? " progress-step-subtask" : ""}`}>
                   <span className="progress-rail" aria-hidden="true">
                     <span className="progress-marker" />
                   </span>

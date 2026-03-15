@@ -42,8 +42,11 @@ MAX_LOOPS=15
 
 ## Local Dev
 
-Frontend hot reload on `http://localhost:3000`  
-Backend auto-reload on `http://127.0.0.1:8000`
+This is the normal local startup flow.
+
+- frontend dev server with HMR on `http://127.0.0.1:3000`
+- backend auto-reload on `http://127.0.0.1:8000`
+- one-line command:
 
 First run:
 
@@ -57,32 +60,17 @@ Later runs:
 cd "C:\Users\jorda\OneDrive\Documents\Dottie\abs-mcp"; .\start-dev.ps1 -SkipInstall
 ```
 
-## Local Demo
-
-Single built app served from one backend on `http://localhost:3000`
-
-First run:
-
-```powershell
-cd "C:\Users\jorda\OneDrive\Documents\Dottie\abs-mcp"; .\start-demo.ps1
-```
-
-Later runs without reinstall/rebuild:
-
-```powershell
-cd "C:\Users\jorda\OneDrive\Documents\Dottie\abs-mcp"; .\start-demo.ps1 -SkipInstall -SkipBuild
-```
-
 ## Files
 
 - [start-dev.ps1](/mnt/c/Users/jorda/OneDrive/Documents/Dottie/abs-mcp/start-dev.ps1): local dev with hot reload
-- [start-demo.ps1](/mnt/c/Users/jorda/OneDrive/Documents/Dottie/abs-mcp/start-demo.ps1): built local demo
-- [run.py](/mnt/c/Users/jorda/OneDrive/Documents/Dottie/abs-mcp/run.py): Python entrypoint used by the demo flow
+- [start-demo.ps1](/mnt/c/Users/jorda/OneDrive/Documents/Dottie/abs-mcp/start-demo.ps1): deprecated compatibility wrapper that now starts local dev
+- [run.py](/mnt/c/Users/jorda/OneDrive/Documents/Dottie/abs-mcp/run.py): combined single-server entrypoint, not the normal local workflow
 
 ## Notes
 
 - Dev mode uses Vite on port `3000` and proxies API calls to backend port `8000`.
-- Demo mode builds the frontend and serves it directly from FastAPI on port `3000`.
+- `start-dev.ps1` is the default local command.
+- `start-demo.ps1` now forwards to `start-dev.ps1` so the local entrypoint stays consistent.
 - If PowerShell blocks scripts, run:
 
 ```powershell
