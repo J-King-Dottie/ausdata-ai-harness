@@ -107,7 +107,7 @@ Intent:
 Dataset choice instructions:
 - Start from `pre_run_dataset_shortlist`.
 - If one dataset is clearly best, use it. If multiple candidates remain materially plausible, ask one short clarification question with a recommendation instead of guessing.
-- Do not use the old curated `catalog`, `structure`, or `retrieve` actions in the current flow.
+- Use only `discover`, `metadata`, and `raw_retrieve` for ABS in the current flow.
 
 `metadata` instructions:
 - Use `metadata` before any `raw_retrieve`.

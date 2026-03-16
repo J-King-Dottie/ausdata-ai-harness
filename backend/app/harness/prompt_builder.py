@@ -8,7 +8,6 @@ from typing import Any, Dict, List
 PROMPT_PATH = Path(__file__).resolve().parents[3] / "HARNESS_SYSTEM_PROMPT.txt"
 SANDBOX_CODEGEN_PROMPT_PATH = Path(__file__).resolve().parents[3] / "SANDBOX_CODEGEN_SYSTEM_PROMPT.txt"
 SOUL_PATH = Path(__file__).resolve().parents[3] / "SOUL.md"
-CURATION_GUIDE_PATH = Path(__file__).resolve().parents[3] / "ABS_CURATION_AGENT.md"
 
 _PROMPT_CACHE = ""
 _PROMPT_CACHE_KEY = ""
@@ -58,35 +57,11 @@ def _compact_soul_text(soul_text: str) -> str:
     return compact if compact else soul_text[:1200]
 
 
-def _needs_curation_guide(plan_state: Dict[str, Any] | None) -> bool:
-    state = dict(plan_state or {})
-    if bool(state.get("curation_mode")):
-        return True
-    approved_plan = state.get("approved_plan")
-    if isinstance(approved_plan, dict):
-        if bool(approved_plan.get("allow_raw_discovery")):
-            return True
-        if str(approved_plan.get("curate_dataset_id") or "").strip():
-            return True
-    pending_context = state.get("pending_plan_context")
-    if isinstance(pending_context, dict):
-        if bool(pending_context.get("allow_raw_discovery")):
-            return True
-        if str(pending_context.get("curate_dataset_id") or "").strip():
-            return True
-    return False
-
-
-def load_system_prompt(include_curation_guide: bool = False) -> str:
+def load_system_prompt() -> str:
     global _PROMPT_CACHE, _PROMPT_CACHE_KEY
     prompt_text = PROMPT_PATH.read_text(encoding="utf-8").strip()
     soul_text = SOUL_PATH.read_text(encoding="utf-8").strip() if SOUL_PATH.exists() else ""
-    curation_text = (
-        CURATION_GUIDE_PATH.read_text(encoding="utf-8").strip()
-        if include_curation_guide and CURATION_GUIDE_PATH.exists()
-        else ""
-    )
-    cache_key = f"{hash(prompt_text)}:{hash(soul_text)}:{hash(curation_text)}"
+    cache_key = f"{hash(prompt_text)}:{hash(soul_text)}"
     if _PROMPT_CACHE and _PROMPT_CACHE_KEY == cache_key:
         return _PROMPT_CACHE
 
@@ -97,12 +72,6 @@ def load_system_prompt(include_curation_guide: bool = False) -> str:
             f"{combined}\n\n"
             "Standing identity and tone guide from SOUL.md:\n"
             f"{compact_soul}"
-        )
-    if curation_text:
-        combined = (
-            f"{combined}\n\n"
-            "Conditional autonomous ABS curation guide:\n"
-            f"{curation_text}"
         )
 
     _PROMPT_CACHE = combined
@@ -186,11 +155,8 @@ def _count_recent_parse_failures(loop_history: List[Dict[str, Any]]) -> int:
 
 
 def build_model_messages(payload: Dict[str, Any]) -> List[Dict[str, str]]:
-    include_curation_guide = _needs_curation_guide(
-        payload.get("plan_state") if isinstance(payload.get("plan_state"), dict) else None
-    )
     messages = [
-        {"role": "system", "content": load_system_prompt(include_curation_guide=include_curation_guide)},
+        {"role": "system", "content": load_system_prompt()},
         {
             "role": "user",
             "content": (

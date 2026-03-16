@@ -144,11 +144,6 @@ def main() -> int:
     output_dir = Path(payload["output_dir"])
     output_dir.mkdir(parents=True, exist_ok=True)
     soul_path = Path(__file__).resolve().parents[3] / "SOUL.md"
-    curated_base_dir = Path(__file__).resolve().parents[3]
-    curated_catalog_path = curated_base_dir / "CURATED_ABS_CATALOG.txt"
-    curated_structures_path = curated_base_dir / "CURATED_ABS_STRUCTURES.txt"
-    curated_catalog_ai_path = curated_base_dir / "CURATED_ABS_CATALOG_AI.txt"
-    curated_structures_ai_path = curated_base_dir / "CURATED_ABS_STRUCTURES_AI.txt"
 
     created_artifacts = []
 
@@ -542,139 +537,6 @@ def main() -> int:
             raise FileNotFoundError(f"SOUL.md not found at {soul_path}")
         return soul_path.read_text(encoding="utf-8")
 
-    def _load_json_array(path: Path):
-        if not path.exists():
-            return []
-        data = json.loads(path.read_text(encoding="utf-8"))
-        if not isinstance(data, list):
-            raise RuntimeError(f"Expected JSON array at {path}")
-        return data
-
-    def load_curated_catalog():
-        return _load_json_array(curated_catalog_path)
-
-    def load_curated_structures():
-        return _load_json_array(curated_structures_path)
-
-    def load_curated_catalog_ai():
-        return _load_json_array(curated_catalog_ai_path)
-
-    def load_curated_structures_ai():
-        return _load_json_array(curated_structures_ai_path)
-
-    def _merge_named_list(base_items, overlay_items, key_field):
-        if not isinstance(base_items, list) or not isinstance(overlay_items, list):
-            return overlay_items if overlay_items is not None else base_items
-
-        merged = []
-        index_by_key = {}
-
-        for item in base_items:
-            copied = dict(item) if isinstance(item, dict) else item
-            merged.append(copied)
-            if isinstance(copied, dict):
-                key = str(copied.get(key_field) or "").strip()
-                if key:
-                    index_by_key[key] = len(merged) - 1
-
-        for item in overlay_items:
-            copied = dict(item) if isinstance(item, dict) else item
-            if not isinstance(copied, dict):
-                merged.append(copied)
-                continue
-            key = str(copied.get(key_field) or "").strip()
-            if not key or key not in index_by_key:
-                merged.append(copied)
-                if key:
-                    index_by_key[key] = len(merged) - 1
-                continue
-            base_item = merged[index_by_key[key]]
-            if isinstance(base_item, dict):
-                merged[index_by_key[key]] = _merge_overlay_dict(base_item, copied)
-            else:
-                merged[index_by_key[key]] = copied
-
-        return merged
-
-    def _merge_overlay_dict(base_entry, overlay_entry):
-        merged = dict(base_entry)
-        for key, overlay_value in overlay_entry.items():
-            if overlay_value is None:
-                continue
-            base_value = merged.get(key)
-            if isinstance(base_value, dict) and isinstance(overlay_value, dict):
-                merged[key] = _merge_overlay_dict(base_value, overlay_value)
-                continue
-            if key == "query_templates":
-                merged[key] = _merge_named_list(base_value, overlay_value, "template_id")
-                continue
-            if key == "measures":
-                merged[key] = _merge_named_list(base_value, overlay_value, "measure_id")
-                continue
-            if key == "data_items":
-                merged[key] = _merge_named_list(base_value, overlay_value, "data_item_id")
-                continue
-            merged[key] = overlay_value
-        return merged
-
-    def upsert_curated_dataset_ai(catalog_entry, structure_entry):
-        if not isinstance(catalog_entry, dict) or not isinstance(structure_entry, dict):
-            raise TypeError("upsert_curated_dataset_ai expects two dict arguments")
-        dataset_id = str(structure_entry.get("dataset_id") or catalog_entry.get("dataset_id") or "").strip()
-        if not dataset_id:
-            raise ValueError("AI curated dataset update requires dataset_id")
-
-        catalog_entry = dict(catalog_entry)
-        structure_entry = dict(structure_entry)
-        catalog_entry["dataset_id"] = dataset_id
-        structure_entry["dataset_id"] = dataset_id
-        catalog_entry["curation_source"] = "ai_overlay"
-        structure_entry["curation_source"] = "ai_overlay"
-
-        base_catalog_entry = next(
-            (dict(entry) for entry in load_curated_catalog() if str(entry.get("dataset_id") or "").strip() == dataset_id),
-            {},
-        )
-        base_structure_entry = next(
-            (dict(entry) for entry in load_curated_structures() if str(entry.get("dataset_id") or "").strip() == dataset_id),
-            {},
-        )
-
-        catalog_entries = load_curated_catalog_ai()
-        structures_entries = load_curated_structures_ai()
-
-        catalog_replaced = False
-        for index, entry in enumerate(catalog_entries):
-            if str(entry.get("dataset_id") or "").strip() == dataset_id:
-                catalog_entries[index] = _merge_overlay_dict(entry, catalog_entry)
-                catalog_replaced = True
-                break
-        if not catalog_replaced:
-            catalog_entries.append(_merge_overlay_dict(base_catalog_entry, catalog_entry) if base_catalog_entry else catalog_entry)
-
-        structure_replaced = False
-        for index, entry in enumerate(structures_entries):
-            if str(entry.get("dataset_id") or "").strip() == dataset_id:
-                structures_entries[index] = _merge_overlay_dict(entry, structure_entry)
-                structure_replaced = True
-                break
-        if not structure_replaced:
-            structures_entries.append(_merge_overlay_dict(base_structure_entry, structure_entry) if base_structure_entry else structure_entry)
-
-        curated_catalog_ai_path.write_text(
-            json.dumps(sorted(catalog_entries, key=lambda item: str(item.get("dataset_id") or "")), ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
-        )
-        curated_structures_ai_path.write_text(
-            json.dumps(sorted(structures_entries, key=lambda item: str(item.get("dataset_id") or "")), ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
-        )
-        return {
-            "dataset_id": dataset_id,
-            "catalog_path": str(curated_catalog_ai_path),
-            "structures_path": str(curated_structures_ai_path),
-        }
-
     exec_env: Dict[str, Any] = {
         "__builtins__": SAFE_BUILTINS,
         "coerce_number": coerce_number,
@@ -694,10 +556,6 @@ def main() -> int:
         "latest_common_period": latest_common_period,
         "latest_row": latest_row,
         "list_artifacts": list_artifacts,
-        "load_curated_catalog": load_curated_catalog,
-        "load_curated_catalog_ai": load_curated_catalog_ai,
-        "load_curated_structures": load_curated_structures,
-        "load_curated_structures_ai": load_curated_structures_ai,
         "load_artifact": load_artifact,
         "load_soul_md": load_soul_md,
         "numeric_change": numeric_change,
@@ -714,7 +572,6 @@ def main() -> int:
         "top_n_by_numeric": top_n_by_numeric,
         "result": None,
         "sort_rows_by_time": sort_rows_by_time,
-        "upsert_curated_dataset_ai": upsert_curated_dataset_ai,
     }
 
     stdout_buffer = io.StringIO()

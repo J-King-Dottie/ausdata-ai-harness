@@ -7,7 +7,6 @@ import logging
 import re
 import shutil
 import subprocess
-from urllib.parse import parse_qs, urlparse
 from pathlib import Path
 from threading import Event, Lock
 from typing import Any, Callable, Dict, List, Optional
@@ -15,7 +14,6 @@ from typing import Any, Callable, Dict, List, Optional
 import httpx
 
 from .config import get_settings
-from .curated_abs import get_curated_dataset, list_curated_datasets, upsert_ai_curated_dataset
 from .harness.parser import HarnessParserError, parse_harness_loop_output
 from .harness.prompt_builder import (
     build_sandbox_codegen_messages,
@@ -68,18 +66,6 @@ STOPWORDS = {
     "a", "an", "and", "are", "as", "at", "by", "for", "from", "how", "i", "in",
     "is", "it", "of", "on", "or", "the", "to", "what", "which", "with", "over",
     "last", "years", "year", "there", "many", "much", "jobs", "job", "data",
-}
-CURATED_DATASET_ALIASES = {
-    "LABOUR_ACCT": "LABOUR_ACCT_Q",
-    "LABOUR_ACCOUNT": "LABOUR_ACCT_Q",
-    "LABOUR_ACCOUNTS": "LABOUR_ACCT_Q",
-    "NATIONAL_ACCTS_SFD": "ANA_SFD",
-    "NATIONAL_ACCOUNTS_SFD": "ANA_SFD",
-    "STATE_FINAL_DEMAND": "ANA_SFD",
-    "STATE_FINAL_DEMAND_DATA": "ANA_SFD",
-    "NATIONAL_ACCTS_AGG": "ANA_AGG",
-    "NATIONAL_ACCOUNTS_AGG": "ANA_AGG",
-    "KEY_AGGREGATES": "ANA_AGG",
 }
 CLARIFICATION_KEYWORDS = {
     "why", "driver", "drivers", "cause", "causes", "explain", "decline",
@@ -449,7 +435,7 @@ def _retain_non_scratchpad_loop_history(loop_history: List[Dict[str, Any]]) -> L
         kind = str(result_data.get("kind") or "").strip()
         if step_id == "sandbox_tool":
             continue
-        if step_id == "compose_final" and kind != "curation_handoff":
+        if step_id == "compose_final":
             continue
         kept.append(item)
     return kept
@@ -690,70 +676,19 @@ def _lookup_concept_label(metadata: Dict[str, Any], concept_id: str) -> str:
     return concept_id
 
 
-def _metadata_to_curated_structure(dataset_id: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
-    dataflow = metadata.get("dataflow") if isinstance(metadata.get("dataflow"), dict) else {}
-    data_structure = metadata.get("dataStructure") if isinstance(metadata.get("dataStructure"), dict) else {}
-    dimensions = [item for item in _to_list(metadata.get("dimensions")) if isinstance(item, dict)]
-    codelist_lookup = {
-        str(item.get("id") or "").strip(): item
-        for item in _to_list(metadata.get("codelists"))
-        if isinstance(item, dict) and str(item.get("id") or "").strip()
-    }
-
-    dimension_order: List[str] = []
-    for dimension in sorted(dimensions, key=lambda item: int(item.get("position") or 0)):
-        field_id = str(dimension.get("id") or "").strip()
-        if not field_id:
-            continue
-        dimension_order.append(field_id)
-
-    structure_note = (
-        f"ABS structured dataset. Data key order: {', '.join(dimension_order)}. "
-        "Use startPeriod and endPeriod for time when appropriate."
-    )
-
-    return {
-        "dataset_id": dataset_id,
-        "title": str(dataflow.get("name") or data_structure.get("name") or dataset_id).strip(),
-        "description": str(
-            dataflow.get("description")
-            or data_structure.get("description")
-            or dataflow.get("name")
-            or data_structure.get("name")
-            or dataset_id
-        ).strip(),
-        "data_structure": structure_note,
-        "query_templates": [],
-    }
-
-
-def _curate_dataset_from_abs(dataset_id: str) -> Dict[str, Any]:
-    metadata = get_dataflow_metadata(dataset_id, force_refresh=True)
-    if not isinstance(metadata, dict):
-        raise RuntimeError(f"Live ABS metadata for {dataset_id} was not an object")
-    structure_entry = _metadata_to_curated_structure(dataset_id, metadata)
-    return upsert_ai_curated_dataset(structure_entry)
-
-
 def _normalize_plan_context(plan_context: Any, *, fallback_question: str) -> Dict[str, Any]:
     context = dict(plan_context) if isinstance(plan_context, dict) else {}
     question = str(context.get("question") or "").strip() or str(fallback_question or "").strip()
     selected_dataset_ids = _clean_string_list(context.get("selected_dataset_ids"))
-    curate_dataset_id = str(context.get("curate_dataset_id") or "").strip()
     allow_raw_discovery = bool(context.get("allow_raw_discovery"))
     await_user_input = bool(context.get("await_user_input"))
-    post_curation_confirmation = bool(context.get("post_curation_confirmation"))
     normalized = {
         "question": question,
         "selected_dataset_ids": selected_dataset_ids,
         "allow_raw_discovery": allow_raw_discovery,
     }
-    if curate_dataset_id:
-        normalized["curate_dataset_id"] = curate_dataset_id
     if await_user_input:
         normalized["await_user_input"] = True
-    if post_curation_confirmation:
-        normalized["post_curation_confirmation"] = True
     return normalized
 
 
@@ -762,18 +697,11 @@ def _build_plan_state(state, *, user_message: str = "") -> Dict[str, Any]:
     status = str(pending.get("status") or "none").strip() or "none"
     plan_context = pending.get("plan_context") if isinstance(pending.get("plan_context"), dict) else None
     approved_plan = plan_context if status == "approved" else None
-    curation_mode = False
-    if isinstance(plan_context, dict):
-        curation_mode = bool(plan_context.get("allow_raw_discovery")) or bool(
-            str(plan_context.get("curate_dataset_id") or "").strip()
-        )
-        curation_mode = curation_mode or bool(plan_context.get("post_curation_confirmation"))
     payload = {
         "status": status,
         "approved_plan": approved_plan,
         "pending_plan_summary": str(pending.get("plan_markdown") or "").strip()[:1200] if status == "awaiting_approval" else "",
         "pending_plan_context": plan_context if status == "awaiting_approval" else None,
-        "curation_mode": curation_mode,
     }
     route_hint = _detect_provider_route(user_message)
     if route_hint:
@@ -838,97 +766,6 @@ def _detect_provider_route(user_message: str) -> Dict[str, str]:
         "provider_route": "abs",
         "routing_reason": "Defaulting to ABS-first retrieval.",
     }
-
-
-def _normalize_dataset_hint(value: str) -> str:
-    normalized = re.sub(r"[^A-Z0-9]+", "_", str(value or "").upper()).strip("_")
-    return normalized
-
-
-def _resolve_curated_dataset_id(dataset_id: str) -> str:
-    raw = str(dataset_id or "").strip()
-    if not raw:
-        return raw
-
-    if get_curated_dataset(raw) is not None:
-        return raw
-
-    normalized = _normalize_dataset_hint(raw)
-    alias_hit = CURATED_DATASET_ALIASES.get(normalized)
-    if alias_hit and get_curated_dataset(alias_hit) is not None:
-        logger.info("Resolved curated dataset alias requested=%s resolved=%s", raw, alias_hit)
-        return alias_hit
-
-    candidates = list_curated_datasets()
-    normalized_compact = normalized.replace("_", "")
-    for entry in candidates:
-        if not isinstance(entry, dict):
-            continue
-        candidate_id = str(entry.get("dataset_id") or "").strip()
-        candidate_title = str(entry.get("title") or "").strip()
-        candidate_id_normalized = _normalize_dataset_hint(candidate_id)
-        candidate_title_normalized = _normalize_dataset_hint(candidate_title)
-        if normalized == candidate_id_normalized or normalized == candidate_title_normalized:
-            if candidate_id:
-                logger.info(
-                    "Resolved curated dataset exact-normalized requested=%s resolved=%s",
-                    raw,
-                    candidate_id,
-                )
-                return candidate_id
-        if normalized_compact and (
-            normalized_compact == candidate_id_normalized.replace("_", "")
-            or normalized_compact == candidate_title_normalized.replace("_", "")
-        ):
-            if candidate_id:
-                logger.info(
-                    "Resolved curated dataset compact-normalized requested=%s resolved=%s",
-                    raw,
-                    candidate_id,
-                )
-                return candidate_id
-
-    best_entry = None
-    best_score = 0
-    search_query = normalized.replace("_", " ")
-    for entry in candidates:
-        if not isinstance(entry, dict):
-            continue
-        score = _score_text_match(
-            search_query,
-            str(entry.get("dataset_id") or ""),
-            str(entry.get("title") or ""),
-            str(entry.get("description") or ""),
-        )
-        if score > best_score:
-            best_score = score
-            best_entry = entry
-    if best_entry is not None and best_score >= 6:
-        resolved = str(best_entry.get("dataset_id") or "").strip()
-        if resolved:
-            logger.info(
-                "Resolved curated dataset fuzzy-match requested=%s resolved=%s score=%s",
-                raw,
-                resolved,
-                best_score,
-            )
-            return resolved
-
-    return raw
-
-
-def _load_curated_entry(dataset_id: str) -> Dict[str, Any]:
-    resolved_dataset_id = _resolve_curated_dataset_id(dataset_id)
-    entry = get_curated_dataset(resolved_dataset_id)
-    if entry is None:
-        available = ", ".join(str(item.get("dataset_id") or "") for item in list_curated_datasets())
-        raise RuntimeError(
-            f"Unknown curated datasetId '{dataset_id}'. Use catalog first or copy datasetId exactly from tool output. "
-            f"Available dataset ids: {available}"
-        )
-    return entry
-
-
 def _summarize_tool_input(tool_input: Dict[str, Any]) -> str:
     if not isinstance(tool_input, dict):
         return "invalid tool input"
@@ -939,9 +776,6 @@ def _summarize_tool_input(tool_input: Dict[str, Any]) -> str:
         "candidateId",
         "datasetId",
         "dataKey",
-        "templateId",
-        "measureId",
-        "dataItemId",
         "searchQuery",
         "query",
         "url",
@@ -972,27 +806,6 @@ def _summarize_tool_input(tool_input: Dict[str, Any]) -> str:
     if sandbox_request:
         parts.append(f"sandbox_request={_truncate(sandbox_request, 160)}")
     return "; ".join(parts) if parts else "no key inputs"
-
-
-def _build_catalog_payload() -> Dict[str, Any]:
-    datasets = []
-    for entry in list_curated_datasets():
-        datasets.append(
-            {
-                "dataset_id": entry.get("dataset_id"),
-                "title": entry.get("title"),
-                "description": entry.get("description"),
-                "data_shape": entry.get("data_shape"),
-                "curation_source": entry.get("curation_source"),
-            }
-        )
-    return {"datasets": datasets}
-
-
-def _summarize_catalog_payload(payload: Dict[str, Any]) -> str:
-    return _json_text(payload)
-
-
 def _build_discover_payload(search_query: str, limit: int = 20) -> Dict[str, Any]:
     logger.info(
         'ABS FTS discover start query="%s" limit=%s',
@@ -1712,179 +1525,6 @@ def _execute_macro_data_tool(
     )
 
 
-def _build_structure_payload(entry: Dict[str, Any]) -> Dict[str, Any]:
-    return {
-        "dataset_id": entry.get("dataset_id"),
-        "title": entry.get("title"),
-        "description": entry.get("description"),
-        "data_shape": entry.get("data_shape"),
-        "curation_source": entry.get("curation_source"),
-        "data_structure": entry.get("data_structure"),
-        "query_templates": entry.get("query_templates"),
-    }
-
-
-def _summarize_structure_payload(payload: Dict[str, Any]) -> str:
-    return _json_text(payload)
-
-
-def _normalize_filters(raw_filters: Any) -> Dict[str, List[str]]:
-    if raw_filters is None:
-        return {}
-    if not isinstance(raw_filters, dict):
-        raise RuntimeError("abs_data_tool retrieve filters must be an object keyed by dimension id")
-
-    normalized: Dict[str, List[str]] = {}
-    for dim_id, values in raw_filters.items():
-        key = str(dim_id or "").strip()
-        if not key:
-            continue
-        normalized_values = _clean_string_list(values)
-        if normalized_values:
-            normalized[key] = normalized_values
-    return normalized
-
-
-def _build_data_key(
-    *,
-    dimension_order: List[str],
-    filters: Dict[str, List[str]],
-) -> str:
-    if not dimension_order:
-        return "all"
-    parts: List[str] = []
-    for dim_id in dimension_order:
-        selected = filters.get(dim_id) or []
-        parts.append("+".join(selected))
-    if all(part == "" for part in parts):
-        return "all"
-    return ".".join(parts)
-
-
-def _parse_template_api_call(api_call: str) -> Dict[str, Any]:
-    raw = str(api_call or "").strip()
-    if not raw:
-        raise RuntimeError("Selected query template is missing api_call")
-
-    parsed = urlparse(raw)
-    path = parsed.path or raw.split("?", 1)[0]
-    match = re.match(r"^/rest/data/([^/]+)/([^/?]+)$", path)
-    if not match:
-        raise RuntimeError(f"Unsupported template api_call format: {raw}")
-
-    query = parse_qs(parsed.query, keep_blank_values=True)
-    return {
-        "dataset_id": match.group(1),
-        "data_key": match.group(2),
-        "detail": (query.get("detail") or [None])[0],
-        "dimension_at_observation": (query.get("dimensionAtObservation") or [None])[0],
-        "start_period": (query.get("startPeriod") or [None])[0],
-        "end_period": (query.get("endPeriod") or [None])[0],
-    }
-
-
-def _find_measure_entry(template: Dict[str, Any], measure_id: str) -> Optional[Dict[str, Any]]:
-    target = str(measure_id or "").strip()
-    if not target:
-        return None
-    for item in _to_list(template.get("measures")):
-        if not isinstance(item, dict):
-            continue
-        if str(item.get("measure_id") or "").strip() == target:
-            return dict(item)
-    return None
-
-
-def _find_data_item_entry(template: Dict[str, Any], data_item_id: str) -> Optional[Dict[str, Any]]:
-    target = str(data_item_id or "").strip()
-    if not target:
-        return None
-    for item in _to_list(template.get("data_items")):
-        if not isinstance(item, dict):
-            continue
-        if str(item.get("data_item_id") or "").strip() == target:
-            return dict(item)
-    return None
-
-
-def _load_query_template(entry: Dict[str, Any], template_id: str) -> Dict[str, Any]:
-    target = str(template_id or "").strip()
-    for template in _to_list(entry.get("query_templates")):
-        if not isinstance(template, dict):
-            continue
-        if str(template.get("template_id") or "").strip() == target:
-            return dict(template)
-    available = ", ".join(
-        str(item.get("template_id") or "").strip()
-        for item in _to_list(entry.get("query_templates"))
-        if isinstance(item, dict)
-    )
-    raise RuntimeError(
-        f"Unknown query template '{template_id}' for dataset {entry.get('dataset_id')}. "
-        f"Available templates: {available}"
-    )
-
-
-def _resolve_query_template(
-    entry: Dict[str, Any],
-    template_id: str,
-    measure_id: str,
-    data_item_id: str,
-) -> tuple[Dict[str, Any], Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
-    target_template_id = str(template_id or "").strip()
-    target_measure_id = str(measure_id or "").strip()
-    target_data_item_id = str(data_item_id or "").strip()
-
-    if target_template_id:
-        template = _load_query_template(entry, target_template_id)
-        measure_entry = _find_measure_entry(template, target_measure_id)
-        data_item_entry = _find_data_item_entry(template, target_data_item_id)
-        return template, measure_entry, data_item_entry
-
-    if target_measure_id:
-        for template in _to_list(entry.get("query_templates")):
-            if not isinstance(template, dict):
-                continue
-            measure_entry = _find_measure_entry(template, target_measure_id)
-            if measure_entry is not None:
-                return dict(template), measure_entry, None
-
-    if target_data_item_id:
-        for template in _to_list(entry.get("query_templates")):
-            if not isinstance(template, dict):
-                continue
-            data_item_entry = _find_data_item_entry(template, target_data_item_id)
-            if data_item_entry is not None:
-                return dict(template), None, data_item_entry
-
-    raise RuntimeError("abs_data_tool retrieve requires templateId, measureId or dataItemId")
-
-
-def _materialize_template_api_call(
-    template: Dict[str, Any],
-    measure_entry: Optional[Dict[str, Any]],
-    data_item_entry: Optional[Dict[str, Any]],
-) -> str:
-    api_call = str(template.get("api_call") or "").strip()
-    if "{MEASURE}" in api_call:
-        measure_id = str((measure_entry or {}).get("measure_id") or "").strip()
-        if not measure_id:
-            raise RuntimeError(
-                "This curated template requires a measureId so the harness can substitute the MEASURE placeholder."
-            )
-        api_call = api_call.replace("{MEASURE}", measure_id)
-
-    if "{DATA_ITEM}" in api_call:
-        data_item_id = str((data_item_entry or {}).get("data_item_id") or "").strip()
-        if not data_item_id:
-            raise RuntimeError(
-                "This curated template requires a dataItemId so the harness can substitute the DATA_ITEM placeholder."
-            )
-        api_call = api_call.replace("{DATA_ITEM}", data_item_id)
-
-    return api_call
-
-
 def _bridge_error_status_code(exc: Exception) -> Optional[int]:
     if not isinstance(exc, MCPBridgeError):
         return None
@@ -1972,20 +1612,10 @@ def _execute_abs_data_tool(
     conversation_id: str,
 ) -> Dict[str, Any]:
     action = str(tool_input.get("action") or "").strip()
-    if action not in {"catalog", "structure", "retrieve", "discover", "metadata", "raw_retrieve"}:
+    if action not in {"discover", "metadata", "raw_retrieve"}:
         raise RuntimeError(f"Unsupported abs_data_tool action: {action}")
 
     dataset_id = str(tool_input.get("datasetId") or "").strip()
-
-    if action == "catalog":
-        payload = _build_catalog_payload()
-        return _tool_result(
-            _summarize_catalog_payload(payload),
-            {
-                "kind": "catalog",
-                "datasets": payload.get("datasets") or [],
-            },
-        )
 
     approved_plan = (
         state.pending_plan.get("plan_context")
@@ -2128,134 +1758,7 @@ def _execute_abs_data_tool(
             },
         )
 
-    # Legacy curated path retained for possible restoration.
-    run_dir = _ensure_runtime_dirs(conversation_id)
-    entry = _load_curated_entry(dataset_id)
-
-    if action == "structure":
-        payload = _build_structure_payload(entry)
-        return _tool_result(
-            _summarize_structure_payload(payload),
-            {
-                "kind": "structure",
-                "dataset_id": payload.get("dataset_id"),
-                "title": payload.get("title"),
-                "description": payload.get("description"),
-                "data_shape": payload.get("data_shape"),
-                "curation_source": payload.get("curation_source"),
-                "data_structure": payload.get("data_structure"),
-                "query_templates": payload.get("query_templates") or [],
-            },
-        )
-
-    template_id = str(tool_input.get("templateId") or "").strip()
-    measure_id = str(tool_input.get("measureId") or "").strip()
-    data_item_id = str(tool_input.get("dataItemId") or "").strip()
-
-    overrides = _normalize_filters(tool_input.get("filters"))
-    if "TIME_PERIOD" in overrides:
-        raise RuntimeError("Use startPeriod/endPeriod instead of a TIME_PERIOD filter")
-    template, measure_entry, data_item_entry = _resolve_query_template(
-        entry,
-        template_id,
-        measure_id,
-        data_item_id,
-    )
-    if overrides:
-        raise RuntimeError(
-            "This curated template must be used as-is. Retrieve it exactly, then narrow the data in sandbox."
-        )
-    materialized_api_call = _materialize_template_api_call(template, measure_entry, data_item_entry)
-    parsed_call = _parse_template_api_call(materialized_api_call)
-    data_key = str(parsed_call.get("data_key") or "").strip() or "all"
-    start_period = str(tool_input.get("startPeriod") or "").strip() or str(parsed_call.get("start_period") or "").strip() or None
-    end_period = str(tool_input.get("endPeriod") or "").strip() or str(parsed_call.get("end_period") or "").strip() or None
-    detail = str(tool_input.get("detail") or "").strip() or str(parsed_call.get("detail") or "full")
-    dimension_at_observation = (
-        str(tool_input.get("dimensionAtObservation") or "").strip()
-        or str(parsed_call.get("dimension_at_observation") or "TIME_PERIOD")
-    )
-    dataset_id = str(parsed_call.get("dataset_id") or entry.get("dataset_id") or dataset_id).strip()
-
-    fallback_note = ""
-    active_filters: Dict[str, List[str]] = {}
-    active_data_key = data_key
-    try:
-        resolved_payload = resolve_dataset(
-            dataset_id=dataset_id,
-            data_key=active_data_key,
-            start_period=start_period,
-            end_period=end_period,
-            detail=detail,
-            dimension_at_observation=dimension_at_observation,
-        )
-    except Exception as exc:
-        status_code = _bridge_error_status_code(exc)
-        if status_code == 404:
-            raise RuntimeError(
-                "ABS returned no data for that curated template call."
-            ) from exc
-        raise
-
-    artifact_payload = {
-        "artifact_type": "resolved_abs_dataset",
-        "catalog_entry": {
-            "datasetId": entry["dataset_id"],
-            "title": entry["title"],
-        },
-        "retrieval": {
-            "datasetId": dataset_id,
-            "templateId": str(template.get("template_id") or template_id).strip(),
-            "measureId": str((measure_entry or {}).get("measure_id") or measure_id).strip(),
-            "dataItemId": str((data_item_entry or {}).get("data_item_id") or data_item_id).strip(),
-            "filters": active_filters,
-            "dataKey": active_data_key,
-            "startPeriod": start_period,
-            "endPeriod": end_period,
-            "detail": detail,
-            "dimensionAtObservation": dimension_at_observation,
-            "apiCall": materialized_api_call,
-        },
-        "resolved_dataset": resolved_payload,
-        "source_references": _build_abs_source_references(dataset_id, str(entry.get("title") or dataset_id)),
-    }
-
-    artifact_path = run_dir / "artifacts" / f"retrieve_{len(state.artifacts) + 1:03d}.json"
-    _write_json(artifact_path, artifact_payload)
-    summary_preview = (
-        f"Resolved ABS dataset {dataset_id} for {entry['title']} with "
-        f"{resolved_payload.get('observationCount', 'unknown')} observations."
-    )
-    record = _make_artifact_record(
-        state=state,
-        path=artifact_path,
-        kind="abs_resolved_dataset",
-        label=f"ABS resolved {dataset_id}",
-        summary=summary_preview,
-        source_references=artifact_payload.get("source_references") or [],
-    )
-    return _tool_result(
-        _build_retrieval_summary(
-            dataset_id=dataset_id,
-            entry=entry,
-            resolved_payload=resolved_payload if isinstance(resolved_payload, dict) else {},
-            filters=active_filters,
-            data_key=active_data_key,
-            artifact_id=record["artifact_id"],
-            fallback_note=fallback_note,
-        ),
-        {
-            "kind": "retrieve",
-            "dataset_id": dataset_id,
-            "catalog_dataset_id": entry.get("dataset_id"),
-            "title": entry.get("title"),
-            "retrieval": artifact_payload.get("retrieval"),
-            "observation_count": resolved_payload.get("observationCount") if isinstance(resolved_payload, dict) else None,
-            "series_count": len(resolved_payload.get("series") or []) if isinstance(resolved_payload, dict) else None,
-            "artifact_id": record["artifact_id"],
-            "source_references": artifact_payload.get("source_references") or [],
-        },
-    )
+    raise RuntimeError(f"Unsupported abs_data_tool action: {action}")
 
 
 def _summarize_sandbox_result(result: Dict[str, Any], created_ids: List[str]) -> str:
@@ -2623,16 +2126,6 @@ def _build_loop_handoff_summary(
         known_bits = []
         if artifact_id:
             known_bits.append(f"Artifact available: {artifact_id}.")
-        retrieval = result_dict.get("retrieval") if isinstance(result_dict.get("retrieval"), dict) else {}
-        template_id = str(retrieval.get("templateId") or "").strip()
-        data_item_id = str(retrieval.get("dataItemId") or "").strip()
-        measure_id = str(retrieval.get("measureId") or "").strip()
-        if template_id:
-            known_bits.append(f"Template: {template_id}.")
-        if data_item_id:
-            known_bits.append(f"Data item: {data_item_id}.")
-        if measure_id:
-            known_bits.append(f"Measure: {measure_id}.")
         source_refs = result_dict.get("source_references") if isinstance(result_dict.get("source_references"), list) else []
         if source_refs:
             first_ref = source_refs[0] if isinstance(source_refs[0], dict) else {}
@@ -2642,23 +2135,6 @@ def _build_loop_handoff_summary(
                 known_bits.append(f"Source: {' '.join(item for item in [ref_provider, ref_dataset] if item)}.")
         known = " ".join(known_bits) or known
         remaining = "Inspect or narrow the retrieved artifact before further analysis."
-    elif kind == "structure":
-        dataset_id = str(result_dict.get("dataset_id") or "").strip()
-        data_shape = str(result_dict.get("data_shape") or "").strip()
-        template_count = len(result_dict.get("query_templates") or []) if isinstance(result_dict.get("query_templates"), list) else 0
-        outcome = f"Inspected structure for {dataset_id or 'the dataset'}."
-        known_bits = []
-        if data_shape:
-            known_bits.append(f"Data shape: {data_shape}.")
-        if template_count:
-            known_bits.append(f"Templates available: {template_count}.")
-        known = " ".join(known_bits) or known
-        remaining = "Choose the exact retrieval path from the inspected structure."
-    elif kind == "catalog":
-        datasets = result_dict.get("datasets") if isinstance(result_dict.get("datasets"), list) else []
-        outcome = "Reviewed the curated catalog."
-        known = f"Candidate datasets found: {len(datasets)}." if datasets else (known or "No catalog candidates were recorded.")
-        remaining = "Pick the most relevant dataset and inspect its structure."
     elif kind == "discover":
         datasets = result_dict.get("datasets") if isinstance(result_dict.get("datasets"), list) else []
         outcome = "Reviewed broader ABS discovery results."
@@ -3018,39 +2494,6 @@ def _retry_reasoning_effort(state) -> Optional[str]:
     return None
 
 
-def _reset_context_after_curation(state, plan_context: Dict[str, Any]) -> None:
-    dataset_id = str(plan_context.get("curate_dataset_id") or "").strip()
-    dataset_title = str(plan_context.get("curated_dataset_title") or dataset_id).strip()
-    question = str(plan_context.get("question") or "").strip()
-    selected_ids = _clean_string_list(plan_context.get("selected_dataset_ids"))
-
-    handoff_summary = (
-        f"Curation completed for {dataset_title or dataset_id}. "
-        "Raw discovery context was collapsed before answer execution."
-    ).strip()
-    if question:
-        handoff_summary += f" Original question: {question}"
-
-    handoff_entry = {
-        "step": {
-            "id": "compose_final",
-            "summary": "Curation completed; switch to curated-answer mode",
-        },
-        "progress_note": "Using the newly curated dataset.",
-        "result_summary": handoff_summary[:2400],
-        "result_data": {
-            "kind": "curation_handoff",
-            "dataset_id": dataset_id,
-            "title": dataset_title,
-            "selected_dataset_ids": selected_ids,
-            "question": question,
-        },
-    }
-
-    state.loop_history = [handoff_entry]
-    state.artifacts = []
-
-
 def _payload_loop_history(state, run_loop_start_index: int) -> tuple[List[Dict[str, Any]], int]:
     prior = state.loop_history[:run_loop_start_index]
     current = state.loop_history[run_loop_start_index:]
@@ -3120,53 +2563,13 @@ def generate_response(
             else:
                 plan_reply = _detect_plan_reply(user_content)
                 if plan_reply == "approve":
-                    curate_dataset_id = str(plan_context.get("curate_dataset_id") or "").strip()
-                    if bool(plan_context.get("post_curation_confirmation")):
-                        _reset_context_after_curation(state, plan_context)
-                        approved_answer_context = {
-                            "question": str(plan_context.get("question") or user_content).strip() or user_content,
-                            "selected_dataset_ids": _clean_string_list(plan_context.get("selected_dataset_ids")),
-                        }
-                        curated_dataset_title = str(plan_context.get("curated_dataset_title") or "").strip()
-                        if curated_dataset_title:
-                            approved_answer_context["curated_dataset_title"] = curated_dataset_title
-                        state.pending_plan = {
-                            "status": "approved",
-                            "plan_markdown": str(pending_plan.get("plan_markdown") or "").strip(),
-                            "plan_context": approved_answer_context,
-                        }
-                        active_user_message = str(approved_answer_context.get("question") or user_content).strip() or user_content
-                    elif curate_dataset_id:
-                        curated_entry = _curate_dataset_from_abs(curate_dataset_id)
-                        selected_ids = _clean_string_list(plan_context.get("selected_dataset_ids"))
-                        if curate_dataset_id not in selected_ids:
-                            selected_ids.append(curate_dataset_id)
-                        plan_context["selected_dataset_ids"] = selected_ids
-                        plan_context["curated_dataset_title"] = str(curated_entry.get("title") or curate_dataset_id).strip()
-                        followup_markdown = (
-                            f"I've reviewed and added `{curate_dataset_id}` to the AI-curated ABS overlay.\n\n"
-                            f"It is now available for this conversation as **{plan_context['curated_dataset_title']}**.\n\n"
-                            "Shall I proceed with answering your original question using it?"
-                        )
-                        plan_context["post_curation_confirmation"] = True
-                        state.pending_plan = {
-                            "status": "awaiting_approval",
-                            "plan_markdown": followup_markdown,
-                            "plan_context": plan_context,
-                        }
-                        persist_completed_turn(followup_markdown)
-                        return followup_markdown
-                    else:
-                        # A normal approval plan is the gate for broader raw ABS discovery.
-                        # Clarification prompts are handled above via await_user_input, and
-                        # post-curation confirmations are handled in the dedicated branch.
-                        plan_context["allow_raw_discovery"] = True
-                        state.pending_plan = {
-                            "status": "approved",
-                            "plan_markdown": str(pending_plan.get("plan_markdown") or "").strip(),
-                            "plan_context": plan_context,
-                        }
-                        active_user_message = str(plan_context.get("question") or user_content).strip() or user_content
+                    plan_context["allow_raw_discovery"] = True
+                    state.pending_plan = {
+                        "status": "approved",
+                        "plan_markdown": str(pending_plan.get("plan_markdown") or "").strip(),
+                        "plan_context": plan_context,
+                    }
+                    active_user_message = str(plan_context.get("question") or user_content).strip() or user_content
                 else:
                     state.pending_plan = None
 

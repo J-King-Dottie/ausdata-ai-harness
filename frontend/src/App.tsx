@@ -652,9 +652,6 @@ function simplifyStatusMessage(value: string) {
   if (/^Loop \d+: reasoning about the next step\.?$/i.test(normalized)) {
     return "";
   }
-  if (/^Loading the curated ABS dataset catalog\.?$/i.test(normalized)) {
-    return "Checking the curated ABS datasets.";
-  }
   if (/^Plan approved\./i.test(normalized)) {
     return "Continuing with the approved approach.";
   }
@@ -664,17 +661,8 @@ function simplifyStatusMessage(value: string) {
   if (/^Resolved ABS dataset /i.test(normalized)) {
     return "Working through the ABS results.";
   }
-  if (/^Adding `[^`]+` to the curated ABS files/i.test(normalized)) {
-    return "Updating the curated ABS definitions.";
-  }
   if (/^Tool execution failed\./i.test(normalized)) {
     return "Adjusting the approach after a failed step.";
-  }
-  if (/^This curated template must be used as-is\./i.test(normalized)) {
-    return "Using the curated ABS template directly.";
-  }
-  if (/^ABS returned no data for that curated template call\.?$/i.test(normalized)) {
-    return "That ABS retrieval returned no data. Trying a different path.";
   }
   if (normalized.startsWith("{") || normalized.startsWith("[")) {
     return "Fetched structured ABS output. Summarising it.";

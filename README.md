@@ -1,46 +1,49 @@
 # Nisaba
 
-Nisaba is an agentic economic analysis harness with ABS-first retrieval, a Python analysis sandbox, web-search support, and a native macro retrieval layer for World Bank, IMF, and OECD data.
+Nisaba is an AI economic analyst. Ask it a question about the Australian economy or global macro data and it will find the right data, run the numbers, and explain what it found.
 
-Rather than exposing raw APIs and hoping the model invents valid calls, Nisaba wraps those substrates with a planning loop, controlled retrieval tools, runtime inspection, narrowing, calculation, and chart/table output so it behaves more like a real economic analyst.
+MCP servers and Claude/Codex agentic frameworks are genuinely powerful — but they are still aimed at developer types. Most people are not going to configure API keys, set up MCP servers, and run agentic pipelines from a terminal.
 
-## Data Engines
+Nisaba exists to make these tools accessible to everyone else.
 
-Nisaba currently packages two retrieval paths inside this repo:
+The backend is open source — run it locally if you want. We are also hosting a public version on AWS where anyone can log in and use it on a pay-per-use basis.
 
-- ABS access built on top of [`mcp-server-abs`](https://github.com/seansoreilly/mcp-server-abs)
-- a native macro provider layer for World Bank, IMF, and OECD
+Pricing is API cost plus a small margin to cover hosting. That's it.
 
-This repo is Nisaba's own application. The ABS path builds on top of the upstream MCP, while the macro path is implemented directly in this codebase.
+The goal is accessibility. Nothing more.
 
-## Runtime Model
+## What Nisaba Does
 
-- Nisaba remains the primary app and the only public-facing backend surface.
-- Nisaba routes:
-  - ABS questions to the ABS retrieval path
-  - non-ABS macro questions to the native macro provider path
-  - mixed questions through both, then reconciles the outputs in sandbox
+- answers economic questions in plain English
+- identifies the most appropriate dataset or indicator for the question
+- retrieves, inspects, and narrows the data before drawing conclusions
+- runs calculations and comparisons in a Python sandbox
+- produces grounded answers with charts, tables, and source references
 
-In final answers, sources should reference the upstream provider data itself, not the middleware layer. For example:
+## Underlying Tooling
 
-- ABS dataset id and title
-- World Bank indicator code and URL
-- IMF series code and URL
-- OECD dataflow and URL
+This repo builds a public-facing harness on top of underlying MCP and retrieval work. Credit is due to:
 
-## ABS Guidance
+- [`mcp-server-abs`](https://github.com/seansoreilly/mcp-server-abs)
+- [`openecon-data`](https://github.com/hanlulong/openecon-data)
 
-The ABS curated layer is grounded in:
+Nisaba uses ABS retrieval built on top of `mcp-server-abs`, and its broader macro flow is inspired by the retrieval, catalog, and routing ideas pioneered in `openecon-data`.
 
-- [CURATED_ABS_CATALOG.txt](/mnt/c/Users/jorda/OneDrive/Documents/Dottie/abs-mcp/CURATED_ABS_CATALOG.txt)
-- [CURATED_ABS_STRUCTURES.txt](/mnt/c/Users/jorda/OneDrive/Documents/Dottie/abs-mcp/CURATED_ABS_STRUCTURES.txt)
+## Retrieval Model
 
-These files encode tested dataset descriptions, known-working query templates, and guidance about what is literally available in the returned ABS data.
+Nisaba currently has two high-level retrieval paths:
+
+- `abs`
+  - Australian Bureau of Statistics data
+  - shortlist, inspect metadata, retrieve, analyze
+- `macro`
+  - international macro data across sources like the OECD, World Bank, and IMF
+  - shortlist indicators, retrieve structured series, analyze in sandbox
 
 ## Stack
 
 - ABS retrieval path
-- native World Bank / IMF / OECD retrieval path
+- macro retrieval path for OECD / World Bank / IMF
 - web-search support for broader context when needed
 - Python sandbox for inspect, narrow, calculate, compare, and chart-prep
 - React frontend
@@ -49,55 +52,26 @@ These files encode tested dataset descriptions, known-working query templates, a
 Produced by [Dottie AI Studio](https://dottieaistudio.com.au/).
 
 ## Requirements
-
 - Python
 - Node.js + npm
 - `OPENAI_API_KEY` in `.env`
 
 Example `.env`:
-
 ```env
 OPENAI_API_KEY=your_key_here
-OPENAI_MODEL=gpt-5.4
-OPENAI_REASONING_EFFORT=low
-MAX_LOOPS=15
 ```
 
 ## Local Dev
 
-This is the normal local startup flow.
-
 - frontend dev server with HMR on `http://127.0.0.1:3000`
-- Nisaba backend auto-reload on `http://127.0.0.1:8000`
-- one-line command:
+- backend auto-reload on `http://127.0.0.1:8000`
 
 First run:
-
 ```powershell
-cd "C:\Users\jorda\OneDrive\Documents\Dottie\abs-mcp"; .\start-dev.ps1
+cd path\to\abs-mcp; .\start-dev.ps1
 ```
 
 Later runs:
-
 ```powershell
-cd "C:\Users\jorda\OneDrive\Documents\Dottie\abs-mcp"; .\start-dev.ps1 -SkipInstall
-```
-
-## Files
-
-- [start-dev.ps1](/mnt/c/Users/jorda/OneDrive/Documents/Dottie/abs-mcp/start-dev.ps1): local dev with hot reload
-- [start-demo.ps1](/mnt/c/Users/jorda/OneDrive/Documents/Dottie/abs-mcp/start-demo.ps1): deprecated compatibility wrapper that now starts local dev
-- [run.py](/mnt/c/Users/jorda/OneDrive/Documents/Dottie/abs-mcp/run.py): combined entrypoint for build and local start
-- [backend/app/macro_data.py](/mnt/c/Users/jorda/OneDrive/Documents/Dottie/abs-mcp/backend/app/macro_data.py): native World Bank / IMF / OECD retrieval layer
-
-## Notes
-
-- Dev mode uses Vite on port `3000` and proxies API calls to Nisaba backend port `8000`.
-- `start-dev.ps1` is the default local command.
-- `start-demo.ps1` now forwards to `start-dev.ps1` so the local entrypoint stays consistent.
-- Docker uses one image and one public backend port.
-- If PowerShell blocks scripts, run:
-
-```powershell
-Set-ExecutionPolicy -Scope Process Bypass
+cd path\to\abs-mcp; .\start-dev.ps1 -SkipInstall
 ```
