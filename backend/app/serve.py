@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 
 import uvicorn
 
@@ -12,12 +13,20 @@ def main() -> int:
     parser.add_argument("--reload", action="store_true")
     args = parser.parse_args()
 
+    reload_kwargs = {}
+    if args.reload:
+        reload_kwargs = {
+            "reload_dirs": [str(Path(__file__).resolve().parents[2] / "backend"), str(Path(__file__).resolve().parents[2] / "frontend")],
+            "reload_excludes": ["vendor/*", "vendor/**", "runtime/*", "runtime/**", "*.sqlite3"],
+        }
+
     uvicorn.run(
         "backend.app.main:app",
         host=args.host,
         port=args.port,
         reload=args.reload,
         log_config=None,
+        **reload_kwargs,
     )
     return 0
 

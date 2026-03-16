@@ -99,10 +99,14 @@ def _normalize_payload_shape(payload: Dict[str, Any]) -> Dict[str, Any]:
             inferred_step_id = "compose_final"
         elif plan_markdown:
             inferred_step_id = "propose_plan"
+        elif tool_name == "provider_route_tool":
+            inferred_step_id = "provider_route_tool"
         elif tool_name == "web_search_tool":
-            inferred_step_id = "use_web_search_tool"
+            inferred_step_id = "web_search_tool"
+        elif tool_name == "macro_data_tool":
+            inferred_step_id = "macro_data_tool"
         elif tool_name == "abs_data_tool" or str(normalized.get("action") or "").strip():
-            inferred_step_id = "use_abs_data_tool"
+            inferred_step_id = "abs_data_tool"
         elif tool_name == "sandbox_tool" or (
             isinstance(tool_input, dict)
             and (
@@ -110,7 +114,7 @@ def _normalize_payload_shape(payload: Dict[str, Any]) -> Dict[str, Any]:
                 or "code" in tool_input
             )
         ):
-            inferred_step_id = "use_sandbox_tool"
+            inferred_step_id = "sandbox_tool"
 
         if inferred_step_id:
             normalized["step"] = {
@@ -150,7 +154,8 @@ def _normalize_payload_shape(payload: Dict[str, Any]) -> Dict[str, Any]:
             or normalized.get("status")
             or normalized.get("progress")
             or normalized.get("note")
-            or "Working on the next step."
+            or ((normalized.get("step") or {}).get("summary") if isinstance(normalized.get("step"), dict) else "")
+            or ""
         ).strip()
 
     return normalized
@@ -369,7 +374,7 @@ def parse_harness_loop_output(raw_text: str) -> Dict[str, Any]:
             last_error = _schema_error("model_output must be an object", validation_path="model_output")
             continue
 
-        if step_id in {"use_abs_data_tool", "use_web_search_tool", "use_sandbox_tool"}:
+        if step_id in {"provider_route_tool", "abs_data_tool", "macro_data_tool", "web_search_tool", "sandbox_tool"}:
             tool_name = str(model_output.get("tool_name") or "").strip()
             tool_input = model_output.get("tool_input")
             if not tool_name:
@@ -385,10 +390,14 @@ def parse_harness_loop_output(raw_text: str) -> Dict[str, Any]:
                 )
                 continue
             expected = (
-                "abs_data_tool"
-                if step_id == "use_abs_data_tool"
+                "provider_route_tool"
+                if step_id == "provider_route_tool"
+                else "abs_data_tool"
+                if step_id == "abs_data_tool"
+                else "macro_data_tool"
+                if step_id == "macro_data_tool"
                 else "web_search_tool"
-                if step_id == "use_web_search_tool"
+                if step_id == "web_search_tool"
                 else "sandbox_tool"
             )
             if tool_name != expected:

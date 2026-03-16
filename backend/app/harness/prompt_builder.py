@@ -128,6 +128,9 @@ def build_loop_payload(
     loop_history: List[Dict[str, Any]],
     artifacts: List[Dict[str, Any]],
     plan_state: Dict[str, Any],
+    pre_run_provider_route: Dict[str, Any] | None,
+    pre_run_dataset_shortlist: List[Dict[str, Any]] | None,
+    pre_run_macro_indicator_shortlist: List[Dict[str, Any]] | None,
     loop_index: int,
     max_loops: int,
     protected_loop_history_count: int = 0,
@@ -144,6 +147,9 @@ def build_loop_payload(
         "loop_history": loop_history,
         "available_artifacts": artifacts,
         "plan_state": plan_state,
+        "pre_run_provider_route": pre_run_provider_route or {},
+        "pre_run_dataset_shortlist": pre_run_dataset_shortlist or [],
+        "pre_run_macro_indicator_shortlist": pre_run_macro_indicator_shortlist or [],
     }
     serialized = json.dumps(payload, ensure_ascii=True)
     if len(serialized) <= 18000:
@@ -217,7 +223,7 @@ def build_model_messages(payload: Dict[str, Any]) -> List[Dict[str, str]]:
                     "Return exactly one literal top-level JSON object.\n"
                     "The object itself must contain only the normal harness fields for this decision: step, progress_note, model_output.\n"
                     "For tool steps, use this exact shape:\n"
-                    "{\"step\":{\"id\":\"use_sandbox_tool\",\"summary\":\"...\"},\"progress_note\":\"...\",\"model_output\":{\"tool_name\":\"sandbox_tool\",\"tool_input\":{\"artifact_ids\":[\"artifact-001\"],\"sandbox_request\":\"Inspect the artifact, isolate the exact comparable slice, save a narrowed artifact if needed, then prepare the calculation output.\"}}}\n"
+                    "{\"step\":{\"id\":\"sandbox_tool\",\"summary\":\"...\"},\"progress_note\":\"...\",\"model_output\":{\"tool_name\":\"sandbox_tool\",\"tool_input\":{\"artifact_ids\":[\"artifact-001\"],\"sandbox_request\":\"Inspect the artifact, isolate the exact comparable slice, save a narrowed artifact if needed, then prepare the calculation output.\"}}}\n"
                     "No prose. No markdown fences. No quoted JSON. No escaped JSON. Do not rethink the task; only return a valid harness payload."
                 ),
             }
@@ -274,7 +280,7 @@ def _filter_codegen_loop_history(loop_history: List[Dict[str, Any]], artifact_id
                 "sandbox_result",
             }:
                 keep = True
-            elif step_id == "use_sandbox_tool":
+            elif step_id == "sandbox_tool":
                 keep = True
         if keep:
             filtered.append(item)

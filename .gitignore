@@ -25,6 +25,8 @@ frontend/dist/
 # Runtime / local state
 runtime/
 *.log
+*.sqlite3
+*.tsbuildinfo
 AWS_DEPLOY_PRIVATE.md
 
 # Editor

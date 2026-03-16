@@ -37,8 +37,6 @@ const STORAGE_KEY = "abs-analyst-session";
 const MAX_POLL_FAILURES = 20;
 const EXAMPLE_PROMPTS = [
   "What data do you have access to?",
-  "Show me a chart of Manufacturing jobs over the last 2 decades?",
-  "Which industry had the largest 5 year growth in gross value added?",
 ];
 
 function createConversationId() {
@@ -176,6 +174,10 @@ function parseChartBlock(raw: string): ChartSpec | null {
   }
 }
 
+function maybeChartLanguage(language: string) {
+  return language === "chart" || language === "json" || language === "";
+}
+
 function parseContentBlocks(value: string): ContentBlock[] {
   const normalized = value.replace(/\r\n/g, "\n").trim();
   if (!normalized) {
@@ -207,13 +209,9 @@ function parseContentBlocks(value: string): ContentBlock[] {
         index += 1;
       }
       const raw = codeLines.join("\n");
-      if (language === "chart") {
-        const spec = parseChartBlock(raw);
-        if (spec) {
-          blocks.push({ type: "chart", spec });
-        } else {
-          blocks.push({ type: "code", code: raw, language });
-        }
+      const spec = maybeChartLanguage(language) ? parseChartBlock(raw) : null;
+      if (spec) {
+        blocks.push({ type: "chart", spec });
       } else {
         blocks.push({ type: "code", code: raw, language });
       }
@@ -265,6 +263,13 @@ function parseContentBlocks(value: string): ContentBlock[] {
       }
       paragraphLines.push(candidateTrimmed);
       index += 1;
+    }
+    if (paragraphLines.length === 1) {
+      const spec = parseChartBlock(paragraphLines[0]);
+      if (spec) {
+        blocks.push({ type: "chart", spec });
+        continue;
+      }
     }
     blocks.push({ type: "paragraph", lines: paragraphLines });
   }
@@ -834,26 +839,30 @@ function ProductTitle() {
                 </svg>
                 <div className="header-tooltip info-tooltip" role="tooltip">
                   <p>
-                    In Sumerian mythology, Nisaba was the goddess of writing, accounting,
-                    and administrative record-keeping.
+                    In Sumerian mythology, Nisaba was the goddess of writing,
+                    accounting, and the keeping of records.
                   </p>
                   <p>
-                    Writing itself emerged in Mesopotamian bureaucracies to count what mattered -
-                    grain rations, livestock, labour allocations, tax obligations.
+                    Writing emerged in Mesopotamian bureaucracies to count what
+                    mattered. Grain, livestock, labour, taxes.
                   </p>
                   <p>
-                    Your Nisaba does the same. She has command of the full ABS economic dataset.
+                    Your Nisaba does the same, drawing on ABS data
+                    and global sources like the OECD, World Bank, and IMF.
                   </p>
                   <p>
-                    Ask her anything about the Australian economy and she'll pull the numbers,
-                    run the calculations, and show you exactly what they say.
+                    Ask anything about the Australian economy and how it compares
+                    to the world, and Nisaba will find the numbers and tell you
+                    what they mean.
                   </p>
                   <p>
                     Produced by{" "}
                     <a href="https://dottieaistudio.com.au/" target="_blank" rel="noreferrer">
                       Dottie AI Studio
                     </a>
-                    {" "}· Powered by{" "}
+                  </p>
+                  <p>
+                    Powered by{" "}
                     <a
                       href="https://github.com/seansoreilly/mcp-server-abs"
                       target="_blank"
@@ -861,7 +870,14 @@ function ProductTitle() {
                     >
                       mcp-server-abs
                     </a>
-                    .
+                    {" & "}
+                    <a
+                      href="https://github.com/hanlulong/openecon-data"
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      openecon-data
+                    </a>
                   </p>
                 </div>
               </span>
@@ -1377,12 +1393,9 @@ function App() {
             <div className="empty-state">
               <div className="empty-state-note">
                 <div className="empty-state-note-group">
-                  <p>This system works from a curated shortlist of ABS data rather than the full API.</p>
-                  <p>This keeps it faster and more reliable. The shortlist is growing over time.</p>
-                </div>
-                <div className="empty-state-note-group">
-                  <p>It handles targeted data retrieval well. Complex layered questions can still trip it up.</p>
-                  <p>Break complex tasks down and guide it step by step for better performance.</p>
+                  <p>Nisaba has access to ABS data plus global sources like the OECD, World Bank, and IMF.</p>
+                  <p>Targeted questions work well. Complex, layered ones can still cause problems.</p>
+                  <p>Break complex questions down and work through them step by step.</p>
                 </div>
               </div>
               <div className="empty-state-prompts">

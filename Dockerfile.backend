@@ -36,6 +36,6 @@ COPY run.py run.py
 RUN mkdir -p /app/runtime /app/cache \
     && pip install --no-cache-dir -r backend/requirements.txt
 
-EXPOSE 8000
+EXPOSE 8080
 
-CMD ["/opt/venv/bin/python", "-m", "uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["/opt/venv/bin/python", "-m", "backend.app.serve", "--host", "0.0.0.0", "--port", "8080"]

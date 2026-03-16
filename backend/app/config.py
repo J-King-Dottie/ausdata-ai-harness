@@ -18,6 +18,10 @@ class Settings(BaseModel):
     openai_api_key: str
     openai_model: str = "gpt-5.4"
     openai_reasoning_effort: str = "low"
+    worldbank_base_url: str = "https://api.worldbank.org/v2"
+    imf_base_url: str = "https://www.imf.org/external/datamapper/api/v1"
+    oecd_base_url: str = "https://sdmx.oecd.org/public/rest"
+    macro_timeout_seconds: int = 120
     node_binary: str = "node"
     python_binary: str = "python3"
     mcp_bridge_path: Path = BASE_DIR / "build" / "mcpBridge.js"
@@ -47,6 +51,22 @@ def get_settings() -> Settings:
     node_binary = os.getenv("NODE_BINARY")
     if node_binary:
         overrides["node_binary"] = node_binary
+
+    worldbank_base_url = os.getenv("WORLDBANK_BASE_URL")
+    if worldbank_base_url:
+        overrides["worldbank_base_url"] = worldbank_base_url
+
+    imf_base_url = os.getenv("IMF_BASE_URL")
+    if imf_base_url:
+        overrides["imf_base_url"] = imf_base_url
+
+    oecd_base_url = os.getenv("OECD_BASE_URL")
+    if oecd_base_url:
+        overrides["oecd_base_url"] = oecd_base_url
+
+    macro_timeout = os.getenv("MACRO_TIMEOUT_SECONDS") or os.getenv("MACRO_TIMEOUT")
+    if macro_timeout:
+        overrides["macro_timeout_seconds"] = int(macro_timeout)
 
     python_binary = os.getenv("PYTHON_BINARY")
     if python_binary:

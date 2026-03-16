@@ -2,23 +2,19 @@
 
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { mkdir } from "node:fs/promises";
 
 import { DataFlowService } from "./services/abs/DataFlowService.js";
 import { DatasetResolver } from "./services/abs/DatasetResolver.js";
-import { DatasetAvailabilityService } from "./services/abs/DatasetAvailabilityService.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const projectRoot = path.resolve(__dirname, "..");
-const cacheDir = path.join(projectRoot, "cache");
-const cachePath = path.join(cacheDir, "dataflows.full.json");
-const availabilityCacheDir = path.join(cacheDir, "availability");
+const cachePath = path.join(projectRoot, "ABS_DATAFLOWS_FULL.json");
 
-async function ensureCacheDir() {
-  await import("node:fs/promises").then(({ mkdir }) =>
-    mkdir(cacheDir, { recursive: true })
-  );
+async function ensureDataflowCacheParent() {
+  await mkdir(path.dirname(cachePath), { recursive: true });
 }
 
 const COMPACT_JSON = process.env.MCP_BRIDGE_COMPACT === "1";
@@ -31,7 +27,7 @@ function emit(result: unknown) {
 }
 
 async function main() {
-  await ensureCacheDir();
+  await ensureDataflowCacheParent();
 
   const [command, rawPayload] = process.argv.slice(2);
   if (!command) {
@@ -49,16 +45,21 @@ async function main() {
 
   const dataFlowService = new DataFlowService(cachePath);
   const resolver = new DatasetResolver(dataFlowService);
-  const availabilityService = new DatasetAvailabilityService(
-    dataFlowService,
-    availabilityCacheDir
-  );
 
   if (command === "list-dataflows") {
     const forceRefresh = Boolean(payload.forceRefresh);
-    const flows = await dataFlowService.getDataFlows(forceRefresh);
+    const searchQuery =
+      typeof payload.searchQuery === "string" ? payload.searchQuery : "";
+    const limit =
+      typeof payload.limit === "number" && Number.isFinite(payload.limit)
+        ? Math.max(1, Math.floor(payload.limit))
+        : 8;
+    const flows = searchQuery
+      ? await dataFlowService.searchDataFlows(searchQuery, limit, forceRefresh)
+      : await dataFlowService.getDataFlows(forceRefresh);
     const response = {
       total: flows.length,
+      searchQuery,
       dataflows: flows,
     };
     emit(response);
@@ -145,18 +146,6 @@ async function main() {
       forceRefresh: Boolean(payload.forceRefresh),
     });
 
-    emit(result);
-    return;
-  }
-
-  if (command === "describe-availability") {
-    const datasetId = payload.datasetId;
-    if (typeof datasetId !== "string" || datasetId.length === 0) {
-      throw new Error("describe-availability requires a datasetId string.");
-    }
-    const result = await availabilityService.getAvailabilityMap(datasetId, {
-      forceRefresh: Boolean(payload.forceRefresh),
-    });
     emit(result);
     return;
   }

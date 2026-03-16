@@ -1,5 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import logger from '../../utils/logger.js';
 import { ABSApiClient } from './ABSApiClient.js';
 import {
@@ -15,21 +17,30 @@ import {
     DataStructureReference
 } from '../../types/abs.js';
 
+const execFileAsync = promisify(execFile);
+
 export class DataFlowService {
     private cache: DataFlowCache | null = null;
     private readonly cacheFilePath: string;
     private readonly refreshIntervalMs: number;
     private readonly apiClient: ABSApiClient;
+    private readonly ftsDbPath: string;
+    private readonly ftsScriptPath: string;
 
     constructor(cacheFilePath: string, refreshIntervalHours: number = 24) {
-        this.cacheFilePath = cacheFilePath;
+        const resolvedCachePath = path.resolve(cacheFilePath);
+        this.cacheFilePath = resolvedCachePath;
         this.refreshIntervalMs = refreshIntervalHours * 60 * 60 * 1000;
         this.apiClient = new ABSApiClient();
+        this.ftsDbPath = path.join(path.dirname(resolvedCachePath), 'ABS_DATAFLOWS_FTS.sqlite3');
+        this.ftsScriptPath = path.join(path.dirname(resolvedCachePath), 'scripts', 'abs_dataflows_fts.py');
 
         logger.info('DataFlowService initialized', {
-            cacheFilePath,
+            cacheFilePath: this.cacheFilePath,
             refreshIntervalHours,
-            refreshIntervalMs: this.refreshIntervalMs
+            refreshIntervalMs: this.refreshIntervalMs,
+            ftsDbPath: this.ftsDbPath,
+            ftsScriptPath: this.ftsScriptPath
         });
     }
 
@@ -195,6 +206,44 @@ export class DataFlowService {
             logger.error('Error extracting data flows from parsed XML', { error });
             throw error;
         }
+    }
+
+    async searchDataFlows(
+        query: string,
+        limit: number = 8,
+        forceRefresh: boolean = false
+    ): Promise<DataFlow[]> {
+        if (forceRefresh) {
+            await this.getDataFlows(true);
+        }
+
+        const normalizedQuery = this.normalizeSearchText(query);
+        if (!normalizedQuery) {
+            const flows = await this.getDataFlows(forceRefresh);
+            return flows.slice(0, Math.max(1, limit));
+        }
+
+        const { stdout } = await execFileAsync('python3', [
+            this.ftsScriptPath,
+            '--json-cache',
+            this.cacheFilePath,
+            '--db',
+            this.ftsDbPath,
+            '--query',
+            query,
+            '--limit',
+            String(Math.max(1, limit))
+        ], {
+            cwd: path.dirname(this.cacheFilePath),
+            maxBuffer: 1024 * 1024
+        });
+
+        const parsed = JSON.parse(stdout) as { dataflows?: DataFlow[] };
+        if (!Array.isArray(parsed.dataflows)) {
+            throw new Error('FTS search returned an invalid payload');
+        }
+
+        return parsed.dataflows;
     }
 
     private extractDataStructure(parsed: any): DataStructureMetadata {
@@ -453,6 +502,26 @@ export class DataFlowService {
     // Utility method to format a dataflow identifier for use in data queries
     public static formatDataflowIdentifier(flow: DataFlow): string {
         return `${flow.agencyID},${flow.id},${flow.version}`;
+    }
+
+    private normalizeSearchText(value: string): string {
+        return String(value || '')
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
+
+    private tokenizeSearchText(value: string): string[] {
+        const stopwords = new Set([
+            'the', 'and', 'for', 'with', 'from', 'that', 'this', 'into',
+            'over', 'under', 'using', 'show', 'data', 'series', 'table',
+            'tables', 'latest', 'time', 'timeseries', 'trend', 'what',
+            'which', 'where'
+        ]);
+        return this.normalizeSearchText(value)
+            .split(' ')
+            .filter((token) => token.length > 1 && !stopwords.has(token));
     }
 
     public static parseDataflowIdentifier(identifier: string): {

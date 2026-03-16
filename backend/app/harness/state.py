@@ -6,9 +6,11 @@ from typing import Any, Dict, List
 
 
 ALLOWED_STEP_IDS = {
-    "use_abs_data_tool",
-    "use_web_search_tool",
-    "use_sandbox_tool",
+    "provider_route_tool",
+    "abs_data_tool",
+    "macro_data_tool",
+    "web_search_tool",
+    "sandbox_tool",
     "propose_plan",
     "compose_final",
 }
@@ -165,6 +167,9 @@ def compact_artifacts(artifacts: List[Dict[str, Any]], limit: int = 8) -> List[D
             "label": str(item.get("label") or "").strip()[:120],
             "summary": str(item.get("summary") or "").strip()[:320],
         }
+        source_references = item.get("source_references")
+        if isinstance(source_references, list) and source_references:
+            entry["source_references"] = source_references[:8]
         inline_content = _load_artifact_inline_content(item, limit_chars=DEFAULT_ARTIFACT_INLINE_LIMIT_CHARS)
         if inline_content is not None:
             entry["content"] = inline_content

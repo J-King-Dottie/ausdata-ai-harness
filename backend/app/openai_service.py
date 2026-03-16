@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from html import unescape
 import json
 import logging
@@ -23,6 +24,12 @@ from .harness.prompt_builder import (
     load_system_prompt,
 )
 from .harness.state import build_chat_history_payload, compact_artifacts, compact_chat_history, compact_loop_history
+from .macro_data import (
+    build_macro_shortlist,
+    evaluate_macro_result_shape,
+    retrieve_macro_candidate,
+    run_macro_query,
+)
 from .mcp_bridge import MCPBridgeError, get_dataflow_metadata, list_dataflows, resolve_dataset
 from .storage import ConversationStore
 
@@ -81,6 +88,20 @@ CLARIFICATION_KEYWORDS = {
 COMPLEX_ANALYSIS_KEYWORDS = {
     "compare", "comparison", "ratio", "per", "highest", "lowest", "rank",
     "ranking", "versus", "vs", "relative", "relative_to", "productivity",
+}
+ABS_QUERY_HINTS = {
+    "abs", "australian bureau of statistics", "state final demand", "labour account",
+    "supply use", "input output", "asgs", "seasonally adjusted", "trend",
+}
+MACRO_QUERY_HINTS = {
+    "gdp", "inflation", "unemployment", "cpi", "interest rate", "policy rate",
+    "current account", "trade balance", "debt", "house prices", "exchange rate",
+    "world bank", "imf", "oecd", "productivity",
+}
+NON_ABS_COUNTRY_HINTS = {
+    "japan", "china", "us", "usa", "united states", "uk", "united kingdom",
+    "germany", "france", "canada", "india", "korea", "euro area", "singapore",
+    "brazil", "indonesia", "new zealand",
 }
 
 CORRECTION_EXPLANATION_RE = re.compile(
@@ -426,7 +447,7 @@ def _retain_non_scratchpad_loop_history(loop_history: List[Dict[str, Any]]) -> L
         step_id = str(step.get("id") or "").strip()
         result_data = item.get("result_data") if isinstance(item.get("result_data"), dict) else {}
         kind = str(result_data.get("kind") or "").strip()
-        if step_id == "use_sandbox_tool":
+        if step_id == "sandbox_tool":
             continue
         if step_id == "compose_final" and kind != "curation_handoff":
             continue
@@ -506,7 +527,7 @@ def _compose_best_effort_final(conversation_id: str, user_message: str, state) -
         "chat_history": build_chat_history_payload(state.messages, recent_full_limit=6, older_compact_limit=3),
         "loop_history": compact_loop_history(state.loop_history, limit=4),
         "available_artifacts": compact_artifacts(state.artifacts, limit=4),
-        "plan_state": _build_plan_state(state),
+        "plan_state": _build_plan_state(state, user_message=user_content),
     }
     messages = [
         {"role": "system", "content": load_system_prompt()},
@@ -553,6 +574,7 @@ def _make_artifact_record(
     kind: str,
     label: str,
     summary: str,
+    source_references: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     artifact_id = _next_artifact_id(state.artifacts)
     record = {
@@ -562,6 +584,8 @@ def _make_artifact_record(
         "summary": summary,
         "path": str(path),
     }
+    if isinstance(source_references, list) and source_references:
+        record["source_references"] = source_references[:12]
     state.artifacts.append(record)
     return record
 
@@ -705,7 +729,7 @@ def _normalize_plan_context(plan_context: Any, *, fallback_question: str) -> Dic
     return normalized
 
 
-def _build_plan_state(state) -> Dict[str, Any]:
+def _build_plan_state(state, *, user_message: str = "") -> Dict[str, Any]:
     pending = state.pending_plan if isinstance(state.pending_plan, dict) else {}
     status = str(pending.get("status") or "none").strip() or "none"
     plan_context = pending.get("plan_context") if isinstance(pending.get("plan_context"), dict) else None
@@ -716,12 +740,75 @@ def _build_plan_state(state) -> Dict[str, Any]:
             str(plan_context.get("curate_dataset_id") or "").strip()
         )
         curation_mode = curation_mode or bool(plan_context.get("post_curation_confirmation"))
-    return {
+    payload = {
         "status": status,
         "approved_plan": approved_plan,
         "pending_plan_summary": str(pending.get("plan_markdown") or "").strip()[:1200] if status == "awaiting_approval" else "",
         "pending_plan_context": plan_context if status == "awaiting_approval" else None,
         "curation_mode": curation_mode,
+    }
+    route_hint = _detect_provider_route(user_message)
+    if route_hint:
+        payload.update(route_hint)
+    return payload
+
+
+def _normalize_provider_route(route: Any) -> str:
+    clean = str(route or "").strip().lower()
+    return clean if clean in {"abs", "macro"} else ""
+
+
+def _detect_provider_route(user_message: str) -> Dict[str, str]:
+    query = str(user_message or "").strip().lower()
+    if not query:
+        return {}
+
+    has_abs_hint = any(token in query for token in ABS_QUERY_HINTS)
+    has_macro_term = any(token in query for token in MACRO_QUERY_HINTS)
+    has_foreign_country = any(token in query for token in NON_ABS_COUNTRY_HINTS)
+    mentions_australia = any(token in query for token in {"australia", "australian", "aus"})
+    has_comparison = any(token in query for token in {" vs ", " versus ", "compare", "comparison"})
+    has_macro_provider = any(token in query for token in {"world bank", "worldbank", "imf", "oecd"})
+
+    if has_abs_hint and has_macro_term and has_foreign_country:
+        return {
+            "preferred_tool": "macro_data_tool",
+            "provider_route": "macro",
+            "routing_reason": "The query mixes ABS-like wording with broader non-ABS macro comparison, so macro is the safer default hint.",
+        }
+
+    if has_abs_hint:
+        return {
+            "preferred_tool": "abs_data_tool",
+            "provider_route": "abs",
+            "routing_reason": "The query appears ABS-specific.",
+        }
+
+    if has_macro_provider:
+        return {
+            "preferred_tool": "macro_data_tool",
+            "provider_route": "macro",
+            "routing_reason": "The query explicitly names a macro data provider.",
+        }
+
+    if has_macro_term and mentions_australia and has_foreign_country and has_comparison:
+        return {
+            "preferred_tool": "macro_data_tool",
+            "provider_route": "macro",
+            "routing_reason": "The query is a cross-country macro comparison and should prefer macro provider retrieval.",
+        }
+
+    if has_macro_term and (has_foreign_country or has_comparison or not has_abs_hint):
+        return {
+            "preferred_tool": "macro_data_tool",
+            "provider_route": "macro",
+            "routing_reason": "The query looks like a non-ABS macro comparison and should prefer macro provider retrieval.",
+        }
+
+    return {
+        "preferred_tool": "abs_data_tool",
+        "provider_route": "abs",
+        "routing_reason": "Defaulting to ABS-first retrieval.",
     }
 
 
@@ -819,14 +906,20 @@ def _summarize_tool_input(tool_input: Dict[str, Any]) -> str:
         return "invalid tool input"
     parts: List[str] = []
     for key in (
+        "route",
         "action",
+        "candidateId",
         "datasetId",
+        "dataKey",
         "templateId",
         "measureId",
         "dataItemId",
         "searchQuery",
         "query",
         "url",
+        "allCountries",
+        "startYear",
+        "endYear",
         "startPeriod",
         "endPeriod",
     ):
@@ -838,6 +931,12 @@ def _summarize_tool_input(tool_input: Dict[str, Any]) -> str:
     artifact_ids = tool_input.get("artifact_ids")
     if isinstance(artifact_ids, list) and artifact_ids:
         parts.append(f"artifact_ids={','.join(str(item) for item in artifact_ids[:6])}")
+    candidate_ids = tool_input.get("candidateIds")
+    if isinstance(candidate_ids, list) and candidate_ids:
+        parts.append(f"candidateIds={','.join(str(item) for item in candidate_ids[:6])}")
+    countries = tool_input.get("countries")
+    if isinstance(countries, list) and countries:
+        parts.append(f"countries={','.join(str(item) for item in countries[:10])}")
     code = str(tool_input.get("code") or "").strip()
     if code:
         parts.append(f"code_preview={_truncate(code, 120)}")
@@ -866,8 +965,17 @@ def _summarize_catalog_payload(payload: Dict[str, Any]) -> str:
     return _json_text(payload)
 
 
-def _build_discover_payload(search_query: str, limit: int = 8) -> Dict[str, Any]:
-    payload = list_dataflows(force_refresh=False)
+def _build_discover_payload(search_query: str, limit: int = 20) -> Dict[str, Any]:
+    logger.info(
+        'ABS FTS discover start query="%s" limit=%s',
+        _truncate(search_query, 200),
+        limit,
+    )
+    payload = list_dataflows(
+        force_refresh=False,
+        search_query=search_query,
+        limit=limit,
+    )
     flows = payload.get("dataflows") if isinstance(payload, dict) else []
     candidates: List[Dict[str, Any]] = []
     for item in _to_list(flows):
@@ -880,15 +988,12 @@ def _build_discover_payload(search_query: str, limit: int = 8) -> Dict[str, Any]
         }
         if not entry["dataset_id"]:
             continue
-        if search_query:
-            entry["score"] = _score_text_match(
-                search_query,
-                entry["dataset_id"],
-                entry["title"],
-                entry["description"],
-            )
-        else:
-            entry["score"] = 0
+        entry["score"] = _score_text_match(
+            search_query,
+            entry["dataset_id"],
+            entry["title"],
+            entry["description"],
+        ) if search_query else 0
         candidates.append(entry)
     candidates.sort(key=lambda item: (-int(item.get("score") or 0), item["dataset_id"]))
     trimmed = [
@@ -900,6 +1005,13 @@ def _build_discover_payload(search_query: str, limit: int = 8) -> Dict[str, Any]
         for item in candidates[:limit]
         if search_query == "" or int(item.get("score") or 0) > 0 or len(candidates) <= limit
     ]
+    logger.info(
+        "ABS FTS discover complete query=%r candidates=%s shortlisted=%s top=%s",
+        search_query,
+        len(candidates),
+        len(trimmed),
+        [item["dataset_id"] for item in trimmed[:3]],
+    )
     return {
         "search_query": search_query,
         "datasets": trimmed,
@@ -911,8 +1023,6 @@ def _summarize_discover_payload(payload: Dict[str, Any]) -> str:
 
 
 def _build_raw_metadata_payload(dataset_id: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
-    dataflow = metadata.get("dataflow") if isinstance(metadata.get("dataflow"), dict) else {}
-    data_structure = metadata.get("dataStructure") if isinstance(metadata.get("dataStructure"), dict) else {}
     dimensions = [
         item
         for item in _to_list(metadata.get("dimensions"))
@@ -928,51 +1038,119 @@ def _build_raw_metadata_payload(dataset_id: str, metadata: Dict[str, Any]) -> Di
         for item in _to_list(metadata.get("codelists"))
         if isinstance(item, dict) and str(item.get("id") or "").strip()
     }
+    concept_lookup = {
+        str(item.get("id") or "").strip(): item
+        for item in concepts
+        if str(item.get("id") or "").strip()
+    }
 
-    dimension_rows: List[Dict[str, Any]] = []
+    dimension_order: List[str] = []
+    anchor_dimension_rows: List[Dict[str, Any]] = []
     for dimension in sorted(dimensions, key=lambda item: int(item.get("position") or 0)):
-        codelist_id = str(dimension.get("codeList") or "").strip()
+        dimension_id = str(dimension.get("id") or "").strip()
+        if not dimension_id:
+            continue
+        codelist_ref = dimension.get("codelist") if isinstance(dimension.get("codelist"), dict) else {}
+        codelist_id = str(
+            dimension.get("codeList")
+            or codelist_ref.get("id")
+            or ""
+        ).strip()
         codes = codelists.get(codelist_id, {})
+        concept_id = str(dimension.get("conceptId") or "").strip()
+        concept_meta = concept_lookup.get(concept_id, {})
+        concept_name = str(
+            concept_meta.get("name")
+            or concept_meta.get("description")
+            or concept_id
+            or dimension_id
+        ).strip()
         code_values = [
             {
                 "code": str(code.get("id") or "").strip(),
-                "label": str(code.get("name") or code.get("description") or code.get("id") or "").strip(),
             }
             for code in _to_list(codes.get("codes"))
             if isinstance(code, dict) and str(code.get("id") or "").strip()
         ]
-        dimension_rows.append(
-            {
-                "id": str(dimension.get("id") or "").strip(),
-                "name": str(dimension.get("name") or dimension.get("id") or "").strip(),
-                "position": int(dimension.get("position") or 0),
-                "code_list_id": codelist_id,
-                "code_count": len(code_values),
-                "sample_codes": code_values[:20],
-            }
+        dimension_order.append(dimension_id)
+        anchor_type = _normalize_anchor_type(dimension_id, concept_id)
+        if anchor_type:
+            anchor_dimension_rows.append(
+                {
+                    "anchor_type": anchor_type,
+                    "dimension_id": dimension_id,
+                    "anchor_description": concept_name,
+                    "position": int(dimension.get("position") or 0),
+                }
+            )
+
+    def _wildcard_template_for(anchor_dimension_id: str) -> str:
+        parts: List[str] = []
+        for dim_id in dimension_order:
+            if dim_id == anchor_dimension_id:
+                parts.append("{" + dim_id + "}")
+            else:
+                parts.append("")
+        return ".".join(parts) if parts else "all"
+
+    anchor_candidates_by_type: Dict[str, Dict[str, Any]] = {}
+    for row in anchor_dimension_rows:
+        anchor_type = str(row.get("anchor_type") or "").strip()
+        dimension_id = str(row.get("dimension_id") or "").strip()
+        candidate = {
+            "anchor_type": anchor_type,
+            "anchor_description": str(row.get("anchor_description") or anchor_type).strip(),
+            "wildcard_data_key_template": _wildcard_template_for(dimension_id),
+        }
+        existing = anchor_candidates_by_type.get(anchor_type)
+        if existing is None:
+            anchor_candidates_by_type[anchor_type] = candidate
+            continue
+        existing_dimension = _anchor_dimension_from_template(str(existing.get("wildcard_data_key_template") or ""))
+        existing_rank = dimension_order.index(existing_dimension) if existing_dimension in dimension_order else 999
+        current_rank = dimension_order.index(dimension_id) if dimension_id in dimension_order else 999
+        if current_rank < existing_rank:
+            anchor_candidates_by_type[anchor_type] = candidate
+    anchor_candidates = list(anchor_candidates_by_type.values())
+    anchor_candidates.sort(
+        key=lambda item: (
+            -_anchor_priority(str(item.get("anchor_type") or "")),
         )
+    )
 
     return {
         "dataset_id": dataset_id,
-        "title": str(dataflow.get("name") or data_structure.get("name") or dataset_id).strip(),
-        "description": str(
-            dataflow.get("description")
-            or data_structure.get("description")
-            or dataflow.get("name")
-            or data_structure.get("name")
-            or dataset_id
-        ).strip(),
-        "dimension_order": [str(item.get("id") or "").strip() for item in dimension_rows if str(item.get("id") or "").strip()],
-        "dimensions": dimension_rows,
-        "concepts": [
-            {
-                "id": str(item.get("id") or "").strip(),
-                "name": str(item.get("name") or item.get("description") or item.get("id") or "").strip(),
-            }
-            for item in concepts[:20]
-            if str(item.get("id") or "").strip()
-        ],
+        "anchor_candidates": anchor_candidates,
     }
+
+
+def _normalize_anchor_type(dimension_id: str, concept_id: str) -> str:
+    text = " ".join(
+        part.strip().upper()
+        for part in (dimension_id, concept_id)
+        if str(part or "").strip()
+    )
+    if "MEASURE" in text:
+        return "MEASURE"
+    if "DATA_ITEM" in text or text.endswith("ITEM") or " ITEM" in text:
+        return "DATA_ITEM"
+    if any(token in text for token in {"CAT", "CATEGORY", "SUPG", "SUPC", "PRODUCT", "COMMODITY", "INDUSTRY", "SECTOR", "FLOW"}):
+        return "CATEGORY"
+    return ""
+
+
+def _anchor_dimension_from_template(template: str) -> str:
+    match = re.search(r"\{([^}]+)\}", str(template or ""))
+    return str(match.group(1) if match else "").strip()
+
+
+def _anchor_priority(anchor_type: str) -> int:
+    priority_map = {
+        "DATA_ITEM": 100,
+        "MEASURE": 90,
+        "CATEGORY": 80,
+    }
+    return priority_map.get(str(anchor_type or "").strip().upper(), 0)
 
 
 def _summarize_raw_metadata_payload(payload: Dict[str, Any]) -> str:
@@ -995,6 +1173,20 @@ def _normalize_result_url(url: str) -> str:
         if redirected:
             return redirected[0]
     return url
+
+
+def _build_abs_source_references(dataset_id: str, title: str = "") -> List[Dict[str, Any]]:
+    clean_dataset_id = str(dataset_id or "").strip()
+    clean_title = str(title or "").strip() or clean_dataset_id
+    if not clean_dataset_id:
+        return []
+    return [
+        {
+            "provider": "ABS",
+            "dataset_id": clean_dataset_id,
+            "title": clean_title,
+        }
+    ]
 
 
 def _search_web(query: str, max_results: int = 5) -> Dict[str, Any]:
@@ -1160,6 +1352,328 @@ def _execute_web_search_tool(
         )
 
     raise RuntimeError(f"Unsupported web_search_tool action: {action}")
+
+
+def _execute_provider_route_tool(
+    *,
+    tool_input: Dict[str, Any],
+    state: HarnessState,
+    conversation_id: str,
+) -> Dict[str, Any]:
+    route = _normalize_provider_route(tool_input.get("route"))
+    if not route:
+        raise RuntimeError("provider_route_tool requires route to be one of abs or macro.")
+    reason = str(tool_input.get("reason") or "").strip()
+    search_query = str(tool_input.get("searchQuery") or "").strip()
+    if not search_query:
+        raise RuntimeError("provider_route_tool requires searchQuery for both abs and macro routes.")
+    logger.info(
+        'Provider route selected cid=%s route=%s reason="%s" search_query="%s"',
+        conversation_id,
+        route,
+        _truncate(reason, 220),
+        _truncate(search_query, 220),
+    )
+    return _tool_result(
+        "\n".join(
+            line
+            for line in [
+                f"Selected provider route: {route}.",
+                f"Planned retrieval query: {search_query}." if search_query else "",
+                f"Reason: {reason}." if reason else "",
+            ]
+            if line
+        ),
+        {
+            "kind": "provider_route_selection",
+            "route": route,
+            "reason": reason,
+            "search_query": search_query,
+        },
+    )
+
+
+def _execute_macro_data_tool(
+    *,
+    tool_input: Dict[str, Any],
+    state,
+    conversation_id: str,
+) -> Dict[str, Any]:
+    action = str(tool_input.get("action") or "").strip().lower()
+    if action == "retrieve":
+        action = "retrieve"
+    if action not in {"query", "discover", "retrieve"}:
+        raise RuntimeError(f"Unsupported macro_data_tool action: {action}")
+
+    query = str(tool_input.get("query") or "").strip()
+    if not query:
+        raise RuntimeError(f"macro_data_tool action {action} requires query")
+
+    if action == "discover":
+        prior_discovers = _count_recent_tool_discover_attempts(state, "macro_data_tool", {"macro_indicator_shortlist"})
+        if prior_discovers >= 2:
+            return _tool_result(
+                _truncate(
+                    f"Macro discovery exhausted for '{query}'. No stronger shortlist was found after two broader retries.",
+                    300,
+                ),
+                {
+                    "kind": "macro_discover_exhausted",
+                    "query": query,
+                    "max_retries_reached": True,
+                },
+            )
+        logger.info(
+            'Macro shortlist start cid=%s query="%s"',
+            conversation_id,
+            _truncate(query, 220),
+        )
+        payload = build_macro_shortlist(query)
+        candidates = payload.get("candidates") if isinstance(payload, dict) else []
+        state.current_macro_indicator_shortlist = [
+            item for item in _to_list(candidates) if isinstance(item, dict)
+        ]
+        logger.info(
+            "Macro shortlist complete cid=%s candidates=%s top=%s",
+            conversation_id,
+            len(candidates) if isinstance(candidates, list) else 0,
+            [str(item.get("candidate_id") or "").strip() for item in (candidates or [])[:3]],
+        )
+        return _tool_result(
+            _truncate(
+                f"Prepared macro indicator shortlist for '{query}'. Candidates: {len(candidates) if isinstance(candidates, list) else 0}.",
+                300,
+            ),
+            {
+                "kind": "macro_indicator_shortlist",
+                "query": query,
+                "candidates": candidates if isinstance(candidates, list) else [],
+            },
+        )
+
+    raw_candidate_ids = tool_input.get("candidateIds")
+    candidate_ids: List[str] = []
+    if isinstance(raw_candidate_ids, list):
+        for item in raw_candidate_ids:
+            clean = str(item or "").strip()
+            if clean and clean not in candidate_ids:
+                candidate_ids.append(clean)
+    candidate_id = str(tool_input.get("candidateId") or "").strip()
+    if candidate_id and candidate_id not in candidate_ids:
+        candidate_ids.insert(0, candidate_id)
+    candidate_ids = candidate_ids[:3]
+    if action == "retrieve" and not candidate_ids:
+        raise RuntimeError("macro_data_tool action retrieve requires candidateId or candidateIds")
+    raw_countries = tool_input.get("countries")
+    countries = [
+        str(item or "").strip().upper()
+        for item in raw_countries
+        if str(item or "").strip()
+    ] if isinstance(raw_countries, list) else []
+    all_countries = bool(tool_input.get("allCountries"))
+    raw_start_year = tool_input.get("startYear")
+    start_year = int(raw_start_year) if isinstance(raw_start_year, int) or (isinstance(raw_start_year, str) and str(raw_start_year).strip().isdigit()) else None
+    raw_end_year = tool_input.get("endYear")
+    end_year = int(raw_end_year) if isinstance(raw_end_year, int) or (isinstance(raw_end_year, str) and str(raw_end_year).strip().isdigit()) else None
+
+    logger.info(
+        'Macro query start cid=%s action=%s query="%s" candidate_ids="%s" countries="%s" all_countries=%s years=%s:%s',
+        conversation_id,
+        action,
+        _truncate(query, 220),
+        ",".join(candidate_ids),
+        ",".join(countries),
+        all_countries,
+        start_year,
+        end_year,
+    )
+    try:
+        if action == "retrieve":
+            if len(candidate_ids) == 1:
+                payload = retrieve_macro_candidate(
+                    candidate_ids[0],
+                    query,
+                    countries=countries,
+                    all_countries=all_countries,
+                    start_year=start_year,
+                    end_year=end_year,
+                )
+                evaluation = evaluate_macro_result_shape(query, payload)
+                payload["retrieval_evaluation"] = evaluation
+                if not bool(evaluation.get("is_acceptable")):
+                    raise RuntimeError(str(evaluation.get("reason") or "No usable data returned in the requested shape."))
+                payload["attempted_candidate_ids"] = list(candidate_ids)
+                payload["selected_candidate_id"] = candidate_ids[0]
+            else:
+                results_by_id: Dict[str, Dict[str, Any]] = {}
+                errors_by_id: Dict[str, str] = {}
+                with ThreadPoolExecutor(max_workers=len(candidate_ids)) as executor:
+                    future_map = {
+                        executor.submit(
+                            retrieve_macro_candidate,
+                            current_candidate_id,
+                            query,
+                            countries=countries,
+                            all_countries=all_countries,
+                            start_year=start_year,
+                            end_year=end_year,
+                        ): current_candidate_id
+                        for current_candidate_id in candidate_ids
+                    }
+                    for future in as_completed(future_map):
+                        current_candidate_id = future_map[future]
+                        try:
+                            results_by_id[current_candidate_id] = future.result()
+                        except Exception as exc:
+                            errors_by_id[current_candidate_id] = str(exc)
+                selected_payload = None
+                selected_candidate_id = ""
+                acceptable_results_by_id: Dict[str, Dict[str, Any]] = {}
+                for current_candidate_id in candidate_ids:
+                    candidate_payload = results_by_id.get(current_candidate_id)
+                    if isinstance(candidate_payload, dict):
+                        evaluation = evaluate_macro_result_shape(query, candidate_payload)
+                        candidate_payload["retrieval_evaluation"] = evaluation
+                        if bool(evaluation.get("is_acceptable")):
+                            acceptable_results_by_id[current_candidate_id] = candidate_payload
+                for current_candidate_id in candidate_ids:
+                    candidate_payload = acceptable_results_by_id.get(current_candidate_id)
+                    if isinstance(candidate_payload, dict):
+                        selected_payload = candidate_payload
+                        selected_candidate_id = current_candidate_id
+                        break
+                if selected_payload is None:
+                    primary_error = errors_by_id.get(candidate_ids[0]) or "No usable data returned in the requested shape."
+                    for current_candidate_id in candidate_ids:
+                        candidate_payload = results_by_id.get(current_candidate_id)
+                        evaluation = candidate_payload.get("retrieval_evaluation") if isinstance(candidate_payload, dict) else {}
+                        reason = str(evaluation.get("reason") or "").strip() if isinstance(evaluation, dict) else ""
+                        if reason:
+                            primary_error = reason
+                            break
+                    raise RuntimeError(primary_error)
+                payload = selected_payload
+                payload["attempted_candidate_ids"] = list(candidate_ids)
+                payload["selected_candidate_id"] = selected_candidate_id
+                payload["candidate_failures"] = errors_by_id
+        else:
+            payload = run_macro_query(query)
+    except Exception as exc:
+        if action == "retrieve":
+            remaining_candidates = [
+                item for item in _to_list(getattr(state, "current_macro_indicator_shortlist", []) or [])
+                if str(item.get("candidate_id") or "").strip() not in set(candidate_ids)
+            ]
+            state.current_macro_indicator_shortlist = remaining_candidates
+            if remaining_candidates:
+                return _tool_result(
+                    _truncate(
+                        f"Macro candidates {', '.join(candidate_ids)} were unavailable for '{query}'. Remaining shortlist candidates: {len(remaining_candidates)}.",
+                        300,
+                    ),
+                    {
+                        "kind": "macro_candidate_unavailable",
+                        "query": query,
+                        "candidate_id": candidate_ids[0] if candidate_ids else "",
+                        "candidate_ids": candidate_ids,
+                        "error": str(exc),
+                        "remaining_candidates": remaining_candidates,
+                    },
+                )
+            return _tool_result(
+                _truncate(
+                    f"No viable macro candidates returned usable data for '{query}'.",
+                    300,
+                ),
+                {
+                    "kind": "macro_unavailable",
+                    "query": query,
+                    "candidate_id": candidate_ids[0] if candidate_ids else "",
+                    "candidate_ids": candidate_ids,
+                    "error": str(exc),
+                    "remaining_candidates": [],
+                },
+            )
+        raise RuntimeError(f"Macro query failed: {exc}") from exc
+
+    if not isinstance(payload, dict):
+        raise RuntimeError("Macro provider returned a non-object response.")
+
+    run_dir = _ensure_runtime_dirs(conversation_id)
+    sources = payload.get("source_references") if isinstance(payload.get("source_references"), list) else []
+    data_entries = payload.get("series") if isinstance(payload.get("series"), list) else []
+    artifact_payload = {
+        "artifact_type": "macro_query_response",
+        "query": query,
+        "response": payload,
+        "source_references": sources,
+    }
+    artifact_path = run_dir / "artifacts" / f"macro_query_{len(state.artifacts) + 1:03d}.json"
+    _write_json(artifact_path, artifact_payload)
+    record = _make_artifact_record(
+        state=state,
+        path=artifact_path,
+        kind="macro_query_response",
+        label=f"Macro query {query[:60]}".strip(),
+        summary=_truncate(
+            f"Macro providers returned {len(data_entries)} series for query '{query}'.",
+            300,
+        ),
+        source_references=sources,
+    )
+    logger.info(
+        "Macro query complete cid=%s series=%s artifact=%s providers=%s",
+        conversation_id,
+        len(data_entries),
+        record["artifact_id"],
+        [str(item.get("provider") or "") for item in sources[:4]],
+    )
+    source_summary = "; ".join(
+        [
+            ", ".join(
+                part
+                for part in [
+                    str(item.get("provider") or "").strip(),
+                    str(item.get("indicator") or "").strip(),
+                    str(item.get("series_id") or "").strip(),
+                ]
+                if part
+            )
+            for item in sources[:4]
+        ]
+    ).strip()
+    summary_lines = [
+        f"Queried macro providers for: {query}",
+        f"Series returned: {len(data_entries)}.",
+        f"Created artifact: {record['artifact_id']}.",
+    ]
+    selected_candidate_id = str(payload.get("selected_candidate_id") or "").strip()
+    attempted_candidate_ids = [
+        str(item or "").strip()
+        for item in (payload.get("attempted_candidate_ids") or [])
+        if str(item or "").strip()
+    ]
+    if selected_candidate_id and attempted_candidate_ids:
+        summary_lines.append(
+            f"Selected candidate: {selected_candidate_id} from attempted candidates {', '.join(attempted_candidate_ids)}."
+        )
+    if source_summary:
+        summary_lines.append(f"Sources: {source_summary}.")
+    return _tool_result(
+        "\n".join(summary_lines),
+        {
+            "kind": "macro_query",
+            "query": query,
+            "artifact_id": record["artifact_id"],
+            "series_count": len(data_entries),
+            "source_references": sources,
+            "provider": str(payload.get("provider") or "").strip(),
+            "concept_id": str(payload.get("concept_id") or "").strip(),
+            "concept_label": str(payload.get("concept_label") or "").strip(),
+            "selected_candidate_id": selected_candidate_id,
+            "attempted_candidate_ids": attempted_candidate_ids,
+        },
+    )
 
 
 def _build_structure_payload(entry: Dict[str, Any]) -> Dict[str, Any]:
@@ -1446,11 +1960,20 @@ def _execute_abs_data_tool(
     )
 
     if action == "discover":
-        if not bool(approved_plan.get("allow_raw_discovery")):
-            raise RuntimeError(
-                "Raw ABS discovery requires prior user approval. Propose a plan asking for permission first."
-            )
         search_query = str(tool_input.get("searchQuery") or "").strip()
+        prior_discovers = _count_recent_tool_discover_attempts(state, "abs_data_tool", {"discover"})
+        if prior_discovers >= 2:
+            return _tool_result(
+                _truncate(
+                    f"ABS discovery exhausted for '{search_query}'. No stronger shortlist was found after two broader retries.",
+                    300,
+                ),
+                {
+                    "kind": "discover_exhausted",
+                    "search_query": search_query,
+                    "max_retries_reached": True,
+                },
+            )
         payload = _build_discover_payload(search_query)
         return _tool_result(
             _summarize_discover_payload(payload),
@@ -1462,10 +1985,6 @@ def _execute_abs_data_tool(
         )
 
     if action == "metadata":
-        if not bool(approved_plan.get("allow_raw_discovery")):
-            raise RuntimeError(
-                "Raw ABS metadata inspection requires prior user approval. Propose a plan asking for permission first."
-            )
         if not dataset_id:
             raise RuntimeError("abs_data_tool action metadata requires datasetId")
         metadata = get_dataflow_metadata(dataset_id, force_refresh=True)
@@ -1477,11 +1996,7 @@ def _execute_abs_data_tool(
             {
                 "kind": "raw_metadata",
                 "dataset_id": payload.get("dataset_id"),
-                "title": payload.get("title"),
-                "description": payload.get("description"),
-                "dimension_order": payload.get("dimension_order") or [],
-                "dimensions": payload.get("dimensions") or [],
-                "concepts": payload.get("concepts") or [],
+                "anchor_candidates": payload.get("anchor_candidates") or [],
             },
         )
 
@@ -1489,13 +2004,10 @@ def _execute_abs_data_tool(
         raise RuntimeError(f"abs_data_tool action {action} requires datasetId")
 
     if action == "raw_retrieve":
-        if not bool(approved_plan.get("allow_raw_discovery")):
-            raise RuntimeError(
-                "Raw ABS retrieval requires prior user approval. Propose a plan asking for permission first."
-            )
         data_key = str(tool_input.get("dataKey") or "").strip()
         if not data_key:
             raise RuntimeError("abs_data_tool action raw_retrieve requires dataKey")
+        _validate_anchor_wildcard_data_key(dataset_id, data_key)
         run_dir = _ensure_runtime_dirs(conversation_id)
         start_period = str(tool_input.get("startPeriod") or "").strip() or None
         end_period = str(tool_input.get("endPeriod") or "").strip() or None
@@ -1503,6 +2015,16 @@ def _execute_abs_data_tool(
         dimension_at_observation = (
             str(tool_input.get("dimensionAtObservation") or "").strip()
             or "TIME_PERIOD"
+        )
+        logger.info(
+            "ABS raw_retrieve request cid=%s datasetId=%s dataKey=%s detail=%s dimensionAtObservation=%s startPeriod=%s endPeriod=%s",
+            conversation_id,
+            dataset_id,
+            data_key,
+            detail,
+            dimension_at_observation,
+            start_period,
+            end_period,
         )
         try:
             resolved_payload = resolve_dataset(
@@ -1535,9 +2057,11 @@ def _execute_abs_data_tool(
                 "rawDiscovery": True,
             },
             "resolved_dataset": resolved_payload,
+            "source_references": _build_abs_source_references(dataset_id, dataset_id),
         }
         artifact_path = run_dir / "artifacts" / f"raw_retrieve_{len(state.artifacts) + 1:03d}.json"
         _write_json(artifact_path, artifact_payload)
+        source_references = artifact_payload.get("source_references") or []
         record = _make_artifact_record(
             state=state,
             path=artifact_path,
@@ -1547,6 +2071,7 @@ def _execute_abs_data_tool(
                 f"Resolved raw ABS dataset {dataset_id} with {resolved_payload.get('observationCount', 'unknown')} observations.",
                 300,
             ),
+            source_references=source_references,
         )
         return _tool_result(
             (
@@ -1563,9 +2088,11 @@ def _execute_abs_data_tool(
                 "observation_count": resolved_payload.get("observationCount") if isinstance(resolved_payload, dict) else None,
                 "series_count": len(resolved_payload.get("series") or []) if isinstance(resolved_payload, dict) else None,
                 "artifact_id": record["artifact_id"],
+                "source_references": source_references,
             },
         )
 
+    # Legacy curated path retained for possible restoration.
     run_dir = _ensure_runtime_dirs(conversation_id)
     entry = _load_curated_entry(dataset_id)
 
@@ -1654,6 +2181,7 @@ def _execute_abs_data_tool(
             "apiCall": materialized_api_call,
         },
         "resolved_dataset": resolved_payload,
+        "source_references": _build_abs_source_references(dataset_id, str(entry.get("title") or dataset_id)),
     }
 
     artifact_path = run_dir / "artifacts" / f"retrieve_{len(state.artifacts) + 1:03d}.json"
@@ -1668,6 +2196,7 @@ def _execute_abs_data_tool(
         kind="abs_resolved_dataset",
         label=f"ABS resolved {dataset_id}",
         summary=summary_preview,
+        source_references=artifact_payload.get("source_references") or [],
     )
     return _tool_result(
         _build_retrieval_summary(
@@ -1688,6 +2217,7 @@ def _execute_abs_data_tool(
             "observation_count": resolved_payload.get("observationCount") if isinstance(resolved_payload, dict) else None,
             "series_count": len(resolved_payload.get("series") or []) if isinstance(resolved_payload, dict) else None,
             "artifact_id": record["artifact_id"],
+            "source_references": artifact_payload.get("source_references") or [],
         },
     )
 
@@ -1784,6 +2314,13 @@ def _validate_sandbox_artifact_references(code: str, artifact_ids: List[str]) ->
 def _lint_sandbox_code(code: str) -> Optional[str]:
     source = str(code or "")
 
+    if re.search(r"\bavailable_artifacts\b", source):
+        return (
+            "The sandbox step referenced available_artifacts as if it were a runtime variable. "
+            "It is prompt context only. Use the passed artifact_ids plus load_artifact(...), "
+            "get_series_rows(...), or inspect_artifact_schema(...)."
+        )
+
     invented_artifact_helper = re.search(
         r"\b(create_artifact|save_artifact|make_artifact|create_json_artifact|create_text_artifact)\s*\(",
         source,
@@ -1861,6 +2398,11 @@ def _generate_sandbox_code(
         for item in (tool_input.get("artifact_ids") or [])
         if isinstance(item, str) and item.strip()
     ]
+    sandbox_request = _normalize_sandbox_request_handoff(
+        sandbox_request=sandbox_request,
+        artifact_ids=artifact_ids,
+    )
+    tool_input["sandbox_request"] = sandbox_request
 
     logger.info(
         'Sandbox codegen request brief="%s" artifacts=%s',
@@ -1903,6 +2445,25 @@ def _generate_sandbox_code(
     return generated
 
 
+def _normalize_sandbox_request_handoff(*, sandbox_request: str, artifact_ids: List[str]) -> str:
+    text = str(sandbox_request or "").strip()
+    if not text:
+        return text
+
+    normalized = re.sub(r"\bavailable_artifacts\b", "selected artifact ids", text, flags=re.IGNORECASE)
+    normalized = re.sub(r"\bartifacts?\b", "selected artifact ids", normalized)
+
+    prefix = ""
+    if artifact_ids:
+        joined = ", ".join(artifact_ids[:4])
+        prefix = (
+            f"Use only the passed artifact_ids ({joined}). "
+            "Inspect schema and rows from the selected artifact first, narrow to the minimum slice needed, and only then calculate or prepare chart-ready output. "
+        )
+
+    return (prefix + normalized).strip()
+
+
 def _execute_sandbox_tool(
     *,
     tool_input: Dict[str, Any],
@@ -1915,8 +2476,6 @@ def _execute_sandbox_tool(
     artifact_ids = tool_input.get("artifact_ids")
     code = _generate_sandbox_code(tool_input=tool_input, state=state, loop_payload=loop_payload)
     tool_input["code"] = code
-    status_callback("Code generated.")
-
     if not isinstance(artifact_ids, list) or not all(isinstance(item, str) and item.strip() for item in artifact_ids):
         raise RuntimeError("sandbox_tool requires a non-empty artifact_ids array of strings")
     _validate_sandbox_artifact_references(code, artifact_ids)
@@ -1962,8 +2521,6 @@ def _execute_sandbox_tool(
             "Sandbox execution failed:\n"
             f"STDOUT: {completed.stdout[:1000]}\nSTDERR: {completed.stderr[:1000]}"
         )
-    status_callback("Code run.")
-
     try:
         runner_result = json.loads(completed.stdout.strip())
     except json.JSONDecodeError as exc:
@@ -2040,6 +2597,13 @@ def _build_loop_handoff_summary(
             known_bits.append(f"Data item: {data_item_id}.")
         if measure_id:
             known_bits.append(f"Measure: {measure_id}.")
+        source_refs = result_dict.get("source_references") if isinstance(result_dict.get("source_references"), list) else []
+        if source_refs:
+            first_ref = source_refs[0] if isinstance(source_refs[0], dict) else {}
+            ref_provider = str(first_ref.get("provider") or "").strip()
+            ref_dataset = str(first_ref.get("dataset_id") or "").strip()
+            if ref_provider or ref_dataset:
+                known_bits.append(f"Source: {' '.join(item for item in [ref_provider, ref_dataset] if item)}.")
         known = " ".join(known_bits) or known
         remaining = "Inspect or narrow the retrieved artifact before further analysis."
     elif kind == "structure":
@@ -2064,12 +2628,71 @@ def _build_loop_handoff_summary(
         outcome = "Reviewed broader ABS discovery results."
         known = f"Candidate datasets found: {len(datasets)}." if datasets else (known or "No discovery candidates were recorded.")
         remaining = "Inspect metadata for the best candidate before raw retrieval."
+    elif kind == "discover_exhausted":
+        outcome = "ABS discovery retries exhausted."
+        known = known or "No stronger ABS shortlist was found after two broader retries."
+        remaining = "If any near-miss candidates from the last shortlist are still interesting, surface them to the user; otherwise say no suitable ABS dataset was found."
     elif kind == "raw_metadata":
         dataset_id = str(result_dict.get("dataset_id") or "").strip()
-        dims = result_dict.get("dimension_order") if isinstance(result_dict.get("dimension_order"), list) else []
+        anchor_candidates = result_dict.get("anchor_candidates") if isinstance(result_dict.get("anchor_candidates"), list) else []
         outcome = f"Inspected metadata for {dataset_id or 'the dataset'}."
-        known = f"Dimension order: {', '.join(str(item) for item in dims[:8])}." if dims else known
-        remaining = "Choose the exact raw data key from the metadata."
+        known_bits: List[str] = []
+        if anchor_candidates:
+            candidate_labels = []
+            for item in anchor_candidates[:3]:
+                if not isinstance(item, dict):
+                    continue
+                anchor_type = str(item.get("anchor_type") or "").strip()
+                anchor_description = str(item.get("anchor_description") or "").strip()
+                if anchor_type and anchor_description:
+                    candidate_labels.append(f"{anchor_type} ({anchor_description})")
+                elif anchor_type:
+                    candidate_labels.append(anchor_type)
+            if candidate_labels:
+                known_bits.append(f"Anchor candidates: {', '.join(candidate_labels)}.")
+        known = " ".join(known_bits) or known
+        remaining = "Choose one anchor and build the exact wildcard data key from the metadata."
+    elif kind == "macro_query":
+        artifact_id = str(result_dict.get("artifact_id") or "").strip()
+        series_count = result_dict.get("series_count")
+        source_refs = result_dict.get("source_references") if isinstance(result_dict.get("source_references"), list) else []
+        provider = str(result_dict.get("provider") or "").strip()
+        concept_label = str(result_dict.get("concept_label") or "").strip()
+        outcome_bits = ["Queried macro providers and received upstream data."]
+        if provider:
+            outcome_bits.append(f"Provider: {provider}.")
+        if concept_label:
+            outcome_bits.append(f"Concept: {concept_label}.")
+        if series_count is not None:
+            outcome_bits.append(f"Series: {series_count}.")
+        outcome = " ".join(outcome_bits)
+        known_bits = []
+        if artifact_id:
+            known_bits.append(f"Artifact available: {artifact_id}.")
+        if source_refs:
+            preview = []
+            for item in source_refs[:3]:
+                if not isinstance(item, dict):
+                    continue
+                label = ", ".join(
+                    part
+                    for part in [
+                        str(item.get("provider") or "").strip(),
+                        str(item.get("indicator") or "").strip(),
+                        str(item.get("series_id") or "").strip(),
+                    ]
+                    if part
+                )
+                if label:
+                    preview.append(label)
+            if preview:
+                known_bits.append(f"Upstream sources: {'; '.join(preview)}.")
+        known = " ".join(known_bits) or known
+        remaining = "Inspect or narrow the retrieved artifact before comparing, ranking, or answering."
+    elif kind == "macro_discover_exhausted":
+        outcome = "Macro discovery retries exhausted."
+        known = known or "No stronger macro shortlist was found after two broader retries."
+        remaining = "If any near-miss candidates from the last shortlist are still interesting, surface them to the user; otherwise say no suitable macro data was found."
     elif kind == "sandbox":
         created_ids = result_dict.get("created_artifact_ids") if isinstance(result_dict.get("created_artifact_ids"), list) else []
         sandbox_result = result_dict.get("result")
@@ -2130,6 +2753,21 @@ def _record_loop_feedback(
     state.loop_history.append(entry)
 
 
+def _count_recent_tool_discover_attempts(state, step_id: str, discover_kinds: set[str]) -> int:
+    count = 0
+    for item in reversed(state.loop_history):
+        if not isinstance(item, dict):
+            break
+        step = item.get("step") if isinstance(item.get("step"), dict) else {}
+        if str(step.get("id") or "").strip() != step_id:
+            break
+        result_data = item.get("result_data") if isinstance(item.get("result_data"), dict) else {}
+        if str(result_data.get("kind") or "").strip() not in discover_kinds:
+            break
+        count += 1
+    return count
+
+
 def _normalize_sandbox_code(code: Any) -> str:
     if not isinstance(code, str):
         return ""
@@ -2147,12 +2785,12 @@ def _recent_failed_sandbox_entry(state) -> Optional[Dict[str, Any]]:
         if not isinstance(item, dict):
             continue
         step = item.get("step") if isinstance(item.get("step"), dict) else {}
-        if str(step.get("id") or "").strip() != "use_sandbox_tool":
+        if str(step.get("id") or "").strip() != "sandbox_tool":
             continue
         result_data = item.get("result_data") if isinstance(item.get("result_data"), dict) else {}
         if str(result_data.get("kind") or "").strip() != "tool_error":
             continue
-        if str(result_data.get("tool_step_id") or "").strip() != "use_sandbox_tool":
+        if str(result_data.get("tool_step_id") or "").strip() != "sandbox_tool":
             continue
         return item
     return None
@@ -2161,9 +2799,11 @@ def _recent_failed_sandbox_entry(state) -> Optional[Dict[str, Any]]:
 def _classify_tool_failure(step_id: str, error_text: str, tool_input: Dict[str, Any]) -> Dict[str, Any]:
     clean_error = str(error_text or "").strip()
     tool_name = {
-        "use_abs_data_tool": "abs_data_tool",
-        "use_web_search_tool": "web_search_tool",
-        "use_sandbox_tool": "sandbox_tool",
+        "provider_route_tool": "provider_route_tool",
+        "abs_data_tool": "abs_data_tool",
+        "macro_data_tool": "macro_data_tool",
+        "web_search_tool": "web_search_tool",
+        "sandbox_tool": "sandbox_tool",
     }.get(step_id, "")
 
     result = {
@@ -2173,8 +2813,16 @@ def _classify_tool_failure(step_id: str, error_text: str, tool_input: Dict[str, 
         "error": clean_error[:4000],
     }
 
-    if step_id != "use_sandbox_tool":
-        result["retry_guidance"] = "Choose a different valid step or adjust the tool input to address the reported error."
+    if step_id != "sandbox_tool":
+        lowered = clean_error.lower()
+        if "exactly one anchored segment" in lowered or "one anchor code only" in lowered:
+            result["error_class"] = "invalid_raw_anchor_wildcard_key"
+            result["retry_guidance"] = (
+                "For raw_retrieve, rebuild dataKey as exactly one anchored segment plus wildcard dots in every other position. "
+                "Do not fix geography, frequency, adjustment, industry, or any extra segment in the key."
+            )
+        else:
+            result["retry_guidance"] = "Choose a different valid step or adjust the tool input to address the reported error."
         return result
 
     sandbox_code = str(tool_input.get("code") or "")
@@ -2242,6 +2890,32 @@ def _classify_tool_failure(step_id: str, error_text: str, tool_input: Dict[str, 
             "Do not repeat the same sandbox code. Inspect the artifact shape again and choose a narrower or safer analysis step."
         )
     return result
+
+
+def _validate_anchor_wildcard_data_key(dataset_id: str, data_key: str) -> None:
+    segments = str(data_key or "").split(".")
+    fixed_segments: List[tuple[int, str]] = []
+
+    for index, segment in enumerate(segments):
+        token = str(segment or "").strip()
+        if not token:
+            continue
+        fixed_segments.append((index, token))
+
+    if len(fixed_segments) != 1:
+        raise RuntimeError(
+            "Invalid raw ABS dataKey. raw_retrieve must use exactly one anchored segment and wildcard every other segment. "
+            f"Received datasetId={dataset_id}, dataKey={data_key}. "
+            "Rebuild the key as one anchor code in the correct position with dots for all remaining positions."
+        )
+
+    _, anchor_token = fixed_segments[0]
+    if "+" in anchor_token:
+        raise RuntimeError(
+            "Invalid raw ABS dataKey. raw_retrieve must use exactly one anchor code, not multiple codes in one segment. "
+            f"Received datasetId={dataset_id}, dataKey={data_key}. "
+            "Choose one anchor code only and wildcard every other position."
+        )
 
 
 def _sandbox_retry_conflict(state, tool_input: Dict[str, Any]) -> Optional[str]:
@@ -2369,7 +3043,7 @@ def generate_response(
     try:
         state = store.load(conversation_id)
         _ensure_runtime_dirs(conversation_id)
-        saved_progress_messages: list[str] = ["Starting analysis"]
+        saved_progress_messages: list[str] = []
 
         def emit_status(message: str) -> None:
             normalized = str(message or "").strip()
@@ -2391,6 +3065,9 @@ def generate_response(
 
         active_user_message = user_content
         payload_chat_history = build_chat_history_payload(state.messages, recent_full_limit=8, older_compact_limit=4)
+        pre_run_dataset_shortlist: List[Dict[str, Any]] = []
+        pre_run_provider_route: Dict[str, Any] = {}
+        clarification_followup = False
         pending_plan = state.pending_plan if isinstance(state.pending_plan, dict) else None
         if pending_plan and str(pending_plan.get("status") or "") == "awaiting_approval":
             plan_context = _normalize_plan_context(
@@ -2398,12 +3075,12 @@ def generate_response(
                 fallback_question=user_content,
             )
             if bool(plan_context.get("await_user_input")):
+                clarification_followup = True
                 state.pending_plan = None
                 active_user_message = (
                     f"{str(plan_context.get('question') or user_content).strip()}\n\n"
                     f"User clarification: {user_content.strip()}"
                 ).strip()
-                emit_status("Got the clarification. Continuing with the analysis.")
             else:
                 plan_reply = _detect_plan_reply(user_content)
                 if plan_reply == "approve":
@@ -2423,9 +3100,7 @@ def generate_response(
                             "plan_context": approved_answer_context,
                         }
                         active_user_message = str(approved_answer_context.get("question") or user_content).strip() or user_content
-                        emit_status("Curation approved. Continuing in curated-answer mode.")
                     elif curate_dataset_id:
-                        emit_status(f"Adding `{curate_dataset_id}` to the AI-curated ABS overlay.")
                         curated_entry = _curate_dataset_from_abs(curate_dataset_id)
                         selected_ids = _clean_string_list(plan_context.get("selected_dataset_ids"))
                         if curate_dataset_id not in selected_ids:
@@ -2444,7 +3119,6 @@ def generate_response(
                             "plan_context": plan_context,
                         }
                         persist_completed_turn(followup_markdown)
-                        emit_status("The dataset has been curated into the AI overlay and is ready to use.")
                         return followup_markdown
                     else:
                         # A normal approval plan is the gate for broader raw ABS discovery.
@@ -2457,7 +3131,6 @@ def generate_response(
                             "plan_context": plan_context,
                         }
                         active_user_message = str(plan_context.get("question") or user_content).strip() or user_content
-                        emit_status("Plan approved. Continuing with the harness execution.")
                 else:
                     state.pending_plan = None
 
@@ -2465,15 +3138,84 @@ def generate_response(
             active_user_message = _reset_context_after_user_correction(state, user_content)
             payload_chat_history = build_chat_history_payload(state.messages, recent_full_limit=8, older_compact_limit=4)
             state.pending_plan = None
-            emit_status("Rechecking from source after the correction.")
-
+        state.current_abs_dataset_shortlist = []
+        state.current_macro_indicator_shortlist = []
         store.save(state)
+
+        route_hint = _detect_provider_route(active_user_message)
+        pre_run_provider_route = dict(route_hint or {})
+        logger.info(
+            'Pre-run provider hint cid=%s route=%s preferred_tool=%s reason="%s" query="%s"',
+            conversation_id,
+            pre_run_provider_route.get("provider_route") or "",
+            pre_run_provider_route.get("preferred_tool") or "",
+            pre_run_provider_route.get("routing_reason") or "",
+            _truncate(active_user_message, 220),
+        )
+        pre_run_dataset_shortlist: List[Dict[str, Any]] = []
+        pre_run_macro_indicator_shortlist: List[Dict[str, Any]] = []
+        selected_provider_route = ""
+        selected_route_query = ""
+        if clarification_followup:
+            hinted_route = _normalize_provider_route(pre_run_provider_route.get("provider_route"))
+            if hinted_route:
+                selected_provider_route = hinted_route
+                selected_route_query = active_user_message
+                pre_run_provider_route["selected_route"] = hinted_route
+                pre_run_provider_route["selected_search_query"] = active_user_message
 
         run_loop_start_index = len(state.loop_history)
         run_artifact_start_index = len(state.artifacts)
 
         for loop_index in range(1, settings.max_loops + 1):
             _ensure_not_cancelled(conversation_id, cancel_event, f"loop_{loop_index}_start")
+
+            if not pre_run_dataset_shortlist and selected_provider_route == "abs":
+                shortlist_query = selected_route_query or active_user_message
+                logger.info(
+                    'Post-route ABS shortlist start cid=%s route=%s query="%s"',
+                    conversation_id,
+                    selected_provider_route,
+                    _truncate(shortlist_query, 220),
+                )
+                shortlist_payload = _build_discover_payload(shortlist_query, limit=20)
+                shortlist_items = shortlist_payload.get("datasets") if isinstance(shortlist_payload, dict) else []
+                pre_run_dataset_shortlist = [
+                    item for item in _to_list(shortlist_items) if isinstance(item, dict)
+                ]
+                state.current_abs_dataset_shortlist = list(pre_run_dataset_shortlist)
+                logger.info(
+                    "Post-route ABS shortlist ready cid=%s route=%s count=%s top=%s",
+                    conversation_id,
+                    selected_provider_route,
+                    len(pre_run_dataset_shortlist),
+                    [str(item.get("dataset_id") or "").strip() for item in pre_run_dataset_shortlist[:3]],
+                )
+            if not pre_run_macro_indicator_shortlist and selected_provider_route == "macro":
+                shortlist_query = selected_route_query or active_user_message
+                logger.info(
+                    'Post-route macro shortlist start cid=%s route=%s query="%s"',
+                    conversation_id,
+                    selected_provider_route,
+                    _truncate(shortlist_query, 220),
+                )
+                macro_shortlist_payload = build_macro_shortlist(shortlist_query, limit=20)
+                macro_candidates = (
+                    macro_shortlist_payload.get("candidates")
+                    if isinstance(macro_shortlist_payload, dict)
+                    else []
+                )
+                pre_run_macro_indicator_shortlist = [
+                    item for item in _to_list(macro_candidates) if isinstance(item, dict)
+                ]
+                state.current_macro_indicator_shortlist = list(pre_run_macro_indicator_shortlist)
+                logger.info(
+                    "Post-route macro shortlist ready cid=%s route=%s count=%s top=%s",
+                    conversation_id,
+                    selected_provider_route,
+                    len(pre_run_macro_indicator_shortlist),
+                    [str(item.get("candidate_id") or "").strip() for item in pre_run_macro_indicator_shortlist[:3]],
+                )
 
             payload_loop_history, protected_loop_history_count = _payload_loop_history(
                 state,
@@ -2484,12 +3226,21 @@ def generate_response(
                 run_artifact_start_index,
             )
 
+            current_provider_route_payload = dict(pre_run_provider_route or {})
+            if selected_provider_route:
+                current_provider_route_payload["selected_route"] = selected_provider_route
+            if selected_route_query:
+                current_provider_route_payload["selected_search_query"] = selected_route_query
+
             payload = build_loop_payload(
                 user_message=active_user_message,
                 chat_history=payload_chat_history,
                 loop_history=payload_loop_history,
                 artifacts=payload_artifacts,
-                plan_state=_build_plan_state(state),
+                plan_state=_build_plan_state(state, user_message=active_user_message),
+                pre_run_provider_route=current_provider_route_payload,
+                pre_run_dataset_shortlist=pre_run_dataset_shortlist,
+                pre_run_macro_indicator_shortlist=pre_run_macro_indicator_shortlist,
                 loop_index=loop_index,
                 max_loops=settings.max_loops,
                 protected_loop_history_count=protected_loop_history_count,
@@ -2529,7 +3280,6 @@ def generate_response(
                         "The harness hit repeated model-call failures and stopped after 3 recovery attempts. "
                         "Please retry or ask a narrower follow-up."
                     )
-                emit_status("That loop hit a model error. Trying again.")
                 continue
             try:
                 parsed = parse_harness_loop_output(raw_model_response)
@@ -2591,12 +3341,48 @@ def generate_response(
                         "The harness hit repeated malformed model outputs and stopped after 3 recovery attempts. "
                         "Please retry or ask a narrower follow-up."
                     )
-                emit_status(progress_text)
                 continue
 
             step = parsed["step"]
             progress_note = parsed["progress_note"]
             model_output = parsed["model_output"]
+
+            if not selected_provider_route and step["id"] not in {"provider_route_tool", "compose_final", "propose_plan"}:
+                logger.info(
+                    "Loop route gate cid=%s loop=%s rejected_step=%s reason=provider_route_required_first",
+                    conversation_id,
+                    loop_index,
+                    step.get("id"),
+                )
+                _record_loop_feedback(
+                    state,
+                    step={
+                        "id": "provider_route_required",
+                        "summary": "Choose the provider path before any retrieval step",
+                    },
+                    progress_note="Choosing the provider path first.",
+                    result_summary=(
+                        "The next loop must choose the provider path first.\n"
+                        "Return `provider_route_tool` with route set to `abs` or `macro`.\n"
+                        "Also provide `searchQuery` as a standalone retrieval query that resolves any conversational carry-over.\n"
+                        "If the route is `abs`, that query will be used for the ABS FTS shortlist.\n"
+                        "If the route is `macro`, that query will be used as the default macro retrieval query in the next loop.\n"
+                        "Only do this when the user actually needs new data retrieval.\n"
+                        "Use `pre_run_provider_route` only as a heuristic hint.\n"
+                        "If the user is making casual conversation, asking a capability question, or can be answered directly without retrieval, use `compose_final` instead.\n"
+                        "Do not call ABS retrieval, macro retrieval, sandbox, or plan before the provider route is selected."
+                    ),
+                    result_data={
+                        "kind": "provider_route_required",
+                        "correction_instructions": (
+                            "If retrieval is needed, return provider_route_tool first and choose exactly one route: abs or macro. "
+                            "Always include searchQuery as the standalone retrieval query. "
+                            "If retrieval is not needed, return compose_final."
+                        ),
+                    },
+                )
+                store.save(state)
+                continue
 
             logger.info(
                 'Loop decision cid=%s loop=%s step=%s summary="%s" progress="%s"',
@@ -2606,7 +3392,7 @@ def generate_response(
                 _truncate(step.get("summary") or "", 220),
                 _truncate(progress_note, 220),
             )
-            if step["id"] in {"use_abs_data_tool", "use_web_search_tool", "use_sandbox_tool"}:
+            if step["id"] in {"provider_route_tool", "abs_data_tool", "macro_data_tool", "web_search_tool", "sandbox_tool"}:
                 logger.info(
                     'Loop tool input cid=%s loop=%s step=%s input="%s"',
                     conversation_id,
@@ -2652,23 +3438,35 @@ def generate_response(
                 return final_answer
 
             try:
-                if step["id"] == "use_sandbox_tool":
+                if step["id"] == "sandbox_tool":
                     retry_conflict = _sandbox_retry_conflict(state, model_output["tool_input"])
                     if retry_conflict:
                         raise RuntimeError(retry_conflict)
-                if step["id"] == "use_abs_data_tool":
+                if step["id"] == "provider_route_tool":
+                    tool_result = _execute_provider_route_tool(
+                        tool_input=model_output["tool_input"],
+                        state=state,
+                        conversation_id=conversation_id,
+                    )
+                elif step["id"] == "abs_data_tool":
                     tool_result = _execute_abs_data_tool(
                         tool_input=model_output["tool_input"],
                         state=state,
                         conversation_id=conversation_id,
                     )
-                elif step["id"] == "use_web_search_tool":
+                elif step["id"] == "macro_data_tool":
+                    tool_result = _execute_macro_data_tool(
+                        tool_input=model_output["tool_input"],
+                        state=state,
+                        conversation_id=conversation_id,
+                    )
+                elif step["id"] == "web_search_tool":
                     tool_result = _execute_web_search_tool(
                         tool_input=model_output["tool_input"],
                         state=state,
                         conversation_id=conversation_id,
                     )
-                elif step["id"] == "use_sandbox_tool":
+                elif step["id"] == "sandbox_tool":
                     tool_result = _execute_sandbox_tool(
                         tool_input=model_output["tool_input"],
                         state=state,
@@ -2706,11 +3504,48 @@ def generate_response(
                     result_data=failure_data,
                 )
                 store.save(state)
-                emit_status("That step failed. Trying a different approach.")
                 continue
 
             result_summary = str(tool_result.get("summary") or "").strip()
             result_data = tool_result.get("result_data")
+
+            if step["id"] == "provider_route_tool" and isinstance(result_data, dict):
+                resolved_route = _normalize_provider_route(result_data.get("route"))
+                if resolved_route:
+                    selected_provider_route = resolved_route
+                    pre_run_provider_route["selected_route"] = resolved_route
+                    selected_route_query = str(result_data.get("search_query") or "").strip()
+                    if selected_route_query:
+                        pre_run_provider_route["selected_search_query"] = selected_route_query
+                    if resolved_route == "macro":
+                        pre_run_dataset_shortlist = []
+                        state.current_abs_dataset_shortlist = []
+                    if resolved_route == "abs":
+                        pre_run_macro_indicator_shortlist = []
+                        state.current_macro_indicator_shortlist = []
+            if step["id"] == "abs_data_tool" and isinstance(result_data, dict):
+                result_kind = str(result_data.get("kind") or "").strip()
+                if result_kind == "discover":
+                    datasets = result_data.get("datasets") if isinstance(result_data.get("datasets"), list) else []
+                    pre_run_dataset_shortlist = [item for item in datasets if isinstance(item, dict)]
+                    state.current_abs_dataset_shortlist = list(pre_run_dataset_shortlist)
+                elif result_kind == "discover_exhausted":
+                    pre_run_dataset_shortlist = list(getattr(state, "current_abs_dataset_shortlist", []) or [])
+            if step["id"] == "macro_data_tool" and isinstance(result_data, dict):
+                result_kind = str(result_data.get("kind") or "").strip()
+                if result_kind == "macro_indicator_shortlist":
+                    candidates = result_data.get("candidates") if isinstance(result_data.get("candidates"), list) else []
+                    pre_run_macro_indicator_shortlist = [item for item in candidates if isinstance(item, dict)]
+                    state.current_macro_indicator_shortlist = list(pre_run_macro_indicator_shortlist)
+                elif result_kind == "macro_candidate_unavailable":
+                    candidates = result_data.get("remaining_candidates") if isinstance(result_data.get("remaining_candidates"), list) else []
+                    pre_run_macro_indicator_shortlist = [item for item in candidates if isinstance(item, dict)]
+                    state.current_macro_indicator_shortlist = list(pre_run_macro_indicator_shortlist)
+                elif result_kind == "macro_unavailable":
+                    pre_run_macro_indicator_shortlist = []
+                    state.current_macro_indicator_shortlist = []
+                elif result_kind == "macro_discover_exhausted":
+                    pre_run_macro_indicator_shortlist = list(getattr(state, "current_macro_indicator_shortlist", []) or [])
 
             _record_loop_feedback(
                 state,

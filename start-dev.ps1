@@ -1,7 +1,8 @@
 Param(
     [string]$EnvFile = ".env",
     [switch]$SkipInstall,
-    [switch]$OpenBrowser
+    [switch]$OpenBrowser,
+    [int]$BackendStartupTimeoutSeconds = 20
 )
 
 Set-StrictMode -Version Latest
@@ -16,15 +17,12 @@ function Import-DotEnv {
         throw "Environment file not found: $Path"
     }
 
-    $lines = Get-Content -Path $Path
-    foreach ($line in $lines) {
+    foreach ($line in Get-Content -Path $Path) {
         if ([string]::IsNullOrWhiteSpace($line)) { continue }
         $trimmed = $line.Trim()
         if ($trimmed.StartsWith("#")) { continue }
-
         $parts = $trimmed -split "=", 2
         if ($parts.Length -lt 2) { continue }
-
         $name = $parts[0].Trim()
         $value = $parts[1].Trim([char]39).Trim([char]34)
         [Environment]::SetEnvironmentVariable($name, $value, "Process")
@@ -87,14 +85,52 @@ $backendArgs = @(
     "--reload"
 )
 
+Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue |
+    Where-Object { $_.State -eq "Listen" -and $_.OwningProcess -gt 0 } |
+    ForEach-Object {
+        try {
+            Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue
+        }
+        catch {
+        }
+    }
+
 Write-Host "Starting backend with reload on http://127.0.0.1:8000"
-$backendProcess = Start-Process -FilePath $PythonExe -ArgumentList $backendArgs -WorkingDirectory $RepoRoot -PassThru
+$escapedRepoRoot = $RepoRoot.Replace('"', '""')
+$escapedPythonExe = $PythonExe.Replace('"', '""')
+$backendCommand = "cd /d `"$escapedRepoRoot`" && `"$escapedPythonExe`" -m backend.app.serve --host 127.0.0.1 --port 8000 --reload"
+$backendProcess = Start-Process `
+    -FilePath "cmd.exe" `
+    -ArgumentList @("/k", $backendCommand) `
+    -WorkingDirectory $RepoRoot `
+    -PassThru
 
+$frontendStarted = $false
 try {
-    Start-Sleep -Seconds 2
+    $healthUrl = "http://127.0.0.1:8000/health"
+    $deadline = (Get-Date).AddSeconds($BackendStartupTimeoutSeconds)
+    $backendReady = $false
 
-    if ($backendProcess.HasExited) {
-        throw "Backend process exited before frontend startup."
+    while ((Get-Date) -lt $deadline) {
+        Start-Sleep -Milliseconds 500
+
+        if ($backendProcess.HasExited) {
+            throw "Backend process exited before frontend startup. Check the backend terminal for the traceback."
+        }
+
+        try {
+            $response = Invoke-WebRequest -Uri $healthUrl -UseBasicParsing -TimeoutSec 2
+            if ($response.StatusCode -eq 200) {
+                $backendReady = $true
+                break
+            }
+        }
+        catch {
+        }
+    }
+
+    if (-not $backendReady) {
+        throw "Backend did not become ready on http://127.0.0.1:8000. Check the backend terminal for logs."
     }
 
     $url = "http://127.0.0.1:3000"
@@ -104,10 +140,15 @@ try {
         Start-Process $url | Out-Null
     }
 
+    $frontendStarted = $true
     & $NpmExe run dev --prefix $FrontendRoot
 }
 finally {
-    if ($backendProcess -and -not $backendProcess.HasExited) {
-        Stop-Process -Id $backendProcess.Id -Force
+    if ($frontendStarted -and $backendProcess -and -not $backendProcess.HasExited) {
+        try {
+            Stop-Process -Id $backendProcess.Id -Force
+        }
+        catch {
+        }
     }
 }

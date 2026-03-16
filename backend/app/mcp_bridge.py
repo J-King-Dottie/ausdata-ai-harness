@@ -4,11 +4,15 @@ import json
 import os
 import re
 import subprocess
+import logging
 from typing import Any, Dict, Optional, Tuple
 
 from .config import get_settings
 import httpx
 from typing import List
+
+
+logger = logging.getLogger("abs.backend.mcp_bridge")
 
 
 ANSI_ESCAPE_RE = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
@@ -193,9 +197,30 @@ def _run_bridge(command: str, payload: Optional[Dict[str, Any]] = None) -> Any:
         )
 
 
-def list_dataflows(force_refresh: bool = False) -> Any:
+def list_dataflows(
+    force_refresh: bool = False,
+    search_query: Optional[str] = None,
+    limit: Optional[int] = None,
+) -> Any:
+    logger.info(
+        "Bridge list_dataflows start force_refresh=%s search_query=%r limit=%s",
+        force_refresh,
+        search_query,
+        limit,
+    )
     payload = {"forceRefresh": force_refresh}
-    return _run_bridge("list-dataflows", payload)
+    if search_query is not None:
+        payload["searchQuery"] = str(search_query)
+    if limit is not None:
+        payload["limit"] = int(limit)
+    result = _run_bridge("list-dataflows", payload)
+    count = len(result.get("dataflows") or []) if isinstance(result, dict) else None
+    logger.info(
+        "Bridge list_dataflows complete search_query=%r returned=%s",
+        search_query,
+        count,
+    )
+    return result
 
 
 def get_dataflow_metadata(dataset_id: str, force_refresh: bool = False) -> Any:
@@ -242,11 +267,3 @@ def resolve_dataset(
     # Remove None values for cleaner payloads
     payload = {key: value for key, value in payload.items() if value is not None}
     return _run_bridge("resolve-dataset", payload)
-
-
-def describe_dataset_availability(
-    dataset_id: str,
-    force_refresh: bool = False,
-) -> Any:
-    payload = {"datasetId": dataset_id, "forceRefresh": force_refresh}
-    return _run_bridge("describe-availability", payload)

@@ -1,29 +1,52 @@
 # Nisaba
 
-Nisaba is an agentic economic analysis harness for the ABS API.
+Nisaba is an agentic economic analysis harness with ABS-first retrieval, a Python analysis sandbox, web-search support, and a native macro retrieval layer for World Bank, IMF, and OECD data.
 
-Rather than exposing ABS through MCP and hoping the model invents valid queries, Nisaba wraps that substrate with a planning loop, curated retrieval layer, Python analysis sandbox, and frontend so it behaves more like a real economic analyst.
+Rather than exposing raw APIs and hoping the model invents valid calls, Nisaba wraps those substrates with a planning loop, controlled retrieval tools, runtime inspection, narrowing, calculation, and chart/table output so it behaves more like a real economic analyst.
 
-The curated layer is the key reliability move. It keeps the runtime surface small, verified, and semantically clear, so the model can spend its effort on economic reasoning and analysis instead of guessing ABS dimensions, code combinations, and fragile API calls.
+## Data Engines
 
-It is grounded in:
-- [CURATED_ABS_CATALOG.txt]
-- [CURATED_ABS_STRUCTURES.txt]
+Nisaba currently packages two retrieval paths inside this repo:
+
+- ABS access built on top of [`mcp-server-abs`](https://github.com/seansoreilly/mcp-server-abs)
+- a native macro provider layer for World Bank, IMF, and OECD
+
+This repo is Nisaba's own application. The ABS path builds on top of the upstream MCP, while the macro path is implemented directly in this codebase.
+
+## Runtime Model
+
+- Nisaba remains the primary app and the only public-facing backend surface.
+- Nisaba routes:
+  - ABS questions to the ABS retrieval path
+  - non-ABS macro questions to the native macro provider path
+  - mixed questions through both, then reconciles the outputs in sandbox
+
+In final answers, sources should reference the upstream provider data itself, not the middleware layer. For example:
+
+- ABS dataset id and title
+- World Bank indicator code and URL
+- IMF series code and URL
+- OECD dataflow and URL
+
+## ABS Guidance
+
+The ABS curated layer is grounded in:
+
+- [CURATED_ABS_CATALOG.txt](/mnt/c/Users/jorda/OneDrive/Documents/Dottie/abs-mcp/CURATED_ABS_CATALOG.txt)
+- [CURATED_ABS_STRUCTURES.txt](/mnt/c/Users/jorda/OneDrive/Documents/Dottie/abs-mcp/CURATED_ABS_STRUCTURES.txt)
 
 These files encode tested dataset descriptions, known-working query templates, and guidance about what is literally available in the returned ABS data.
 
-In practice, Nisaba can retrieve curated ABS data, compare datasets, calculate derived metrics, handle matrix-style tables, and generate charts and tables when they help explain the answer.
+## Stack
 
-Nisaba is built on top of the ABS MCP server provided by [`mcp-server-abs`](https://github.com/seansoreilly/mcp-server-abs). That server is an important foundation: it provides the underlying ABS access layer this harness depends on. Nisaba is the agentic product built around that substrate, not a replacement for it.
-
-The stack includes:
-- curated ABS retrieval logic
+- ABS retrieval path
+- native World Bank / IMF / OECD retrieval path
 - web-search support for broader context when needed
-- one Python sandbox tool
+- Python sandbox for inspect, narrow, calculate, compare, and chart-prep
 - React frontend
 - FastAPI backend
 
-Produced by [Dottie AI Studio](https://dottieaistudio.com.au/) · Built on top of [mcp-server-abs](https://github.com/seansoreilly/mcp-server-abs).
+Produced by [Dottie AI Studio](https://dottieaistudio.com.au/).
 
 ## Requirements
 
@@ -45,7 +68,7 @@ MAX_LOOPS=15
 This is the normal local startup flow.
 
 - frontend dev server with HMR on `http://127.0.0.1:3000`
-- backend auto-reload on `http://127.0.0.1:8000`
+- Nisaba backend auto-reload on `http://127.0.0.1:8000`
 - one-line command:
 
 First run:
@@ -64,13 +87,15 @@ cd "C:\Users\jorda\OneDrive\Documents\Dottie\abs-mcp"; .\start-dev.ps1 -SkipInst
 
 - [start-dev.ps1](/mnt/c/Users/jorda/OneDrive/Documents/Dottie/abs-mcp/start-dev.ps1): local dev with hot reload
 - [start-demo.ps1](/mnt/c/Users/jorda/OneDrive/Documents/Dottie/abs-mcp/start-demo.ps1): deprecated compatibility wrapper that now starts local dev
-- [run.py](/mnt/c/Users/jorda/OneDrive/Documents/Dottie/abs-mcp/run.py): combined single-server entrypoint, not the normal local workflow
+- [run.py](/mnt/c/Users/jorda/OneDrive/Documents/Dottie/abs-mcp/run.py): combined entrypoint for build and local start
+- [backend/app/macro_data.py](/mnt/c/Users/jorda/OneDrive/Documents/Dottie/abs-mcp/backend/app/macro_data.py): native World Bank / IMF / OECD retrieval layer
 
 ## Notes
 
-- Dev mode uses Vite on port `3000` and proxies API calls to backend port `8000`.
+- Dev mode uses Vite on port `3000` and proxies API calls to Nisaba backend port `8000`.
 - `start-dev.ps1` is the default local command.
 - `start-demo.ps1` now forwards to `start-dev.ps1` so the local entrypoint stays consistent.
+- Docker uses one image and one public backend port.
 - If PowerShell blocks scripts, run:
 
 ```powershell

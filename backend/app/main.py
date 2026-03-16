@@ -238,7 +238,7 @@ async def chat(request: ChatRequest):
         return ChatAcceptedResponse(
             conversation_id=request.conversation_id,
             run_status="processing",
-            latest_progress=str(state.latest_progress or "Still working on the current request."),
+            latest_progress=str(state.latest_progress or ""),
         )
 
     run_id = secrets.token_hex(8)
@@ -263,7 +263,7 @@ async def chat(request: ChatRequest):
     return ChatAcceptedResponse(
         conversation_id=request.conversation_id,
         run_status="processing",
-        latest_progress=state.latest_progress or "Starting analysis",
+        latest_progress=state.latest_progress or "",
     )
 
 

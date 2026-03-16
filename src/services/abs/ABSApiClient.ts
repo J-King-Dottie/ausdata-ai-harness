@@ -114,12 +114,6 @@ export class ABSApiClient {
         dataKey: string = 'all',
         options?: DataQueryOptions
     ) {
-        logger.info('Fetching data from ABS API', {
-            dataflowId,
-            dataKey,
-            options
-        });
-
         const format = options?.format ?? 'jsondata';
 
         const params: Record<string, string> = {};
@@ -137,7 +131,20 @@ export class ABSApiClient {
         }
         params.format = format;
 
-        const response = await this.api.get(`/rest/data/${dataflowId}/${dataKey}`, {
+        const requestPath = `/rest/data/${dataflowId}/${dataKey}`;
+        const query = new URLSearchParams(params).toString();
+        const requestUrl = query
+            ? `https://data.api.abs.gov.au${requestPath}?${query}`
+            : `https://data.api.abs.gov.au${requestPath}`;
+
+        logger.info('Fetching data from ABS API', {
+            dataflowId,
+            dataKey,
+            options,
+            requestUrl
+        });
+
+        const response = await this.api.get(requestPath, {
             params,
             headers: {
                 Accept: this.getAcceptHeader(format)

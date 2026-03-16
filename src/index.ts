@@ -9,17 +9,11 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { DataFlowService } from "./services/abs/DataFlowService.js";
 import { DatasetResolver } from "./services/abs/DatasetResolver.js";
-import { DatasetAvailabilityService } from "./services/abs/DatasetAvailabilityService.js";
 import { DataFormat, DataQueryOptions } from "./types/abs.js";
 
-const cacheDir = path.join(process.cwd(), "cache");
-const dataflowCachePath = path.join(cacheDir, "dataflows.full.json");
+const dataflowCachePath = path.join(process.cwd(), "ABS_DATAFLOWS_FULL.json");
 const dataFlowService = new DataFlowService(dataflowCachePath);
 const datasetResolver = new DatasetResolver(dataFlowService);
-const datasetAvailabilityService = new DatasetAvailabilityService(
-  dataFlowService,
-  path.join(cacheDir, "availability")
-);
 
 const server = new Server(
   {
@@ -49,6 +43,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             forceRefresh: {
               type: "boolean",
               description: "If true, bypass cache and fetch latest dataflows from ABS"
+            },
+            searchQuery: {
+              type: "string",
+              description: "Optional local full-text search over cached ABS dataflows to return only a ranked shortlist"
+            },
+            limit: {
+              type: "number",
+              description: "Optional shortlist size when using searchQuery (default 8)"
             }
           }
         }
@@ -163,26 +165,6 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           }
         }
       },
-      {
-        name: "describe_dataset_availability",
-        description:
-          "Inspect real ABS series to build a dimension availability map for a dataset (no observation values returned)",
-        inputSchema: {
-          type: "object",
-          required: ["datasetId"],
-          properties: {
-            datasetId: {
-              type: "string",
-              description:
-                "ABS dataflow identifier in {agencyId},{dataflowId},{version} format (e.g., ABS,CPI,1.1.0)"
-            },
-            forceRefresh: {
-              type: "boolean",
-              description: "If true, bypass cached availability and recompute from ABS"
-            }
-          }
-        }
-      }
     ]
   };
 });
@@ -195,9 +177,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "list_dataflows": {
         const forceRefresh =
           typeof args?.forceRefresh === "boolean" ? args.forceRefresh : false;
-        const flows = await dataFlowService.getDataFlows(forceRefresh);
+        const searchQuery =
+          typeof args?.searchQuery === "string" ? args.searchQuery : "";
+        const limit =
+          typeof args?.limit === "number" && Number.isFinite(args.limit)
+            ? Math.max(1, Math.floor(args.limit))
+            : 8;
+        const flows = searchQuery
+          ? await dataFlowService.searchDataFlows(searchQuery, limit, forceRefresh)
+          : await dataFlowService.getDataFlows(forceRefresh);
         const payload = {
           total: flows.length,
+          searchQuery,
           dataflows: flows,
         };
         return {
@@ -286,25 +277,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             {
               type: "text",
               text: JSON.stringify(result, null, 2),
-            },
-          ],
-        };
-      }
-      case "describe_dataset_availability": {
-        if (!args?.datasetId || typeof args.datasetId !== "string") {
-          throw new Error("datasetId is required and must be a string");
-        }
-        const availabilityMap = await datasetAvailabilityService.getAvailabilityMap(
-          args.datasetId,
-          {
-            forceRefresh: typeof args?.forceRefresh === "boolean" ? args.forceRefresh : false,
-          }
-        );
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(availabilityMap, null, 2),
             },
           ],
         };
