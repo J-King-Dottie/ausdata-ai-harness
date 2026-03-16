@@ -75,3 +75,5 @@ Later runs:
 ```powershell
 cd path\to\abs-mcp; .\start-dev.ps1 -SkipInstall
 ```
+
+Built out of genuine curiosity. If you find it useful or have ideas, open an issue or get in touch.
