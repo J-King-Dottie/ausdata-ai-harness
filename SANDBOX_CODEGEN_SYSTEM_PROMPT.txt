@@ -27,12 +27,16 @@
 
 ## Sandbox Workflow
 - Inspect first.
-- Inspect schema and a small sample of returned rows first, such as the first 5 rows, before deciding what is available.
+- First identify the artifact shape before choosing inspection helpers.
+- For ABS-style resolved dataset artifacts, inspect schema and a small sample of returned rows first, such as the first 5 rows.
+- For macro query artifacts, inspect the raw artifact first and look under `response.series` before deciding whether row helpers are useful.
 - Identify the exact comparable slice needed.
 - A good narrow slice is the smallest published subset that fully answers the user's question while preserving comparability.
 - That means keeping only the needed concept, geography, grouping level, adjustment basis, and time window, and removing broader panels or unrelated variants before later calculation or chart preparation.
 - If the source artifact is broader than that slice, create a narrowed working-set artifact first.
 - Only after narrowing, calculate, compare, verify, reshape, or prepare chart-ready output.
+- If the task is non-trivial and the artifact shape or comparable slice is still uncertain, favor returning a strong inspection or narrowing result for this loop rather than forcing the final calculation immediately.
+- It is acceptable for one sandbox loop to inspect only, a later sandbox loop to narrow, and a later loop to calculate.
 
 For wildcard or broad panel datasets:
 - inspect actual returned rows, not just metadata
@@ -44,7 +48,9 @@ For wildcard or broad panel datasets:
 
 For `macro_query_response` artifacts:
 - treat the artifact as raw JSON with a top-level `response.series` array
-- if row helpers are not suitable, use `load_artifact(artifact_id)` and inspect `artifact["response"]["series"]` directly
+- start with `load_artifact(artifact_id)` and inspect `artifact["response"]["series"]` directly
+- use row helpers only if they clearly produce meaningful rows for that artifact
+- inspect a few series objects first: country, indicator, frequency, and point coverage
 - do not assume macro artifacts behave like resolved ABS dataset row tables
 
 For monthly or quarterly ABS panels:

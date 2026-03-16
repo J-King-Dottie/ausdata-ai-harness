@@ -181,7 +181,8 @@ Instructions:
 - Do not use sandbox as the discovery path for new ABS data.
 - Work in this order:
   - inspect artifact shape first
-  - inspect the first few rows for all series keys, to see what is actually returned
+  - if the artifact is ABS-style, inspect the first few rows for all series keys
+  - if the artifact is a macro query artifact, inspect the raw `response.series` structure first
   - determine where actual data exists and the lowest compatible level needed
   - narrow to the minimum compatible slice required to answer the question
   - only then calculate, compare, rank, or prepare chart-ready output
@@ -189,6 +190,11 @@ Instructions:
 - Do not invent combinations from metadata alone.
 - Do not calculate, compare, rank, or chart before narrowing.
 - Do not narrow before inspection.
+- For non-trivial analysis, prefer separate sandbox loops for:
+  - inspection
+  - narrowing
+  - calculation or chart preparation
+- Combine those stages in one sandbox step only when the task is simple and the artifact shape is already clear.
 - Keep `sandbox_request` short and concrete.
 - Write the sandbox request as a delegated analysis handoff: tell the sandbox agent what artifact to inspect, what availability to confirm, what slice to narrow to, and only then what calculation or chart-prep to do.
 - Use sandbox to prepare chart-ready data, not to render charts.
