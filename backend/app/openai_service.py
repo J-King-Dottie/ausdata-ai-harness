@@ -643,6 +643,34 @@ def _score_text_match(query: str, *haystacks: str) -> int:
     return score
 
 
+def _query_explicitly_requests_census(query: str) -> bool:
+    text = str(query or "").lower()
+    if not text:
+        return False
+    explicit_patterns = (
+        r"\bcensus\b",
+        r"\bpopulation census\b",
+        r"\b2021 census\b",
+        r"\b2026 census\b",
+        r"\b2016 census\b",
+    )
+    return any(re.search(pattern, text) for pattern in explicit_patterns)
+
+
+def _is_census_dataflow(dataset_id: str, title: str, description: str) -> bool:
+    corpus = " ".join(
+        part.strip().lower()
+        for part in (dataset_id, title, description)
+        if str(part or "").strip()
+    )
+    if not corpus:
+        return False
+    return bool(
+        re.search(r"\bcensus\b", corpus)
+        or "census of population and housing" in corpus
+    )
+
+
 def _detect_plan_reply(user_message: str) -> str:
     text = str(user_message or "").strip()
     if PLAN_APPROVAL_RE.match(text):
@@ -978,6 +1006,7 @@ def _build_discover_payload(search_query: str, limit: int = 20) -> Dict[str, Any
     )
     flows = payload.get("dataflows") if isinstance(payload, dict) else []
     candidates: List[Dict[str, Any]] = []
+    explicit_census_query = _query_explicitly_requests_census(search_query)
     for item in _to_list(flows):
         if not isinstance(item, dict):
             continue
@@ -994,6 +1023,13 @@ def _build_discover_payload(search_query: str, limit: int = 20) -> Dict[str, Any
             entry["title"],
             entry["description"],
         ) if search_query else 0
+        entry["is_census"] = _is_census_dataflow(
+            entry["dataset_id"],
+            entry["title"],
+            entry["description"],
+        )
+        if entry["is_census"] and not explicit_census_query:
+            entry["score"] -= 100
         candidates.append(entry)
     candidates.sort(key=lambda item: (-int(item.get("score") or 0), item["dataset_id"]))
     trimmed = [
