@@ -1680,6 +1680,12 @@ def _execute_abs_data_tool(
         if not data_key:
             raise RuntimeError("abs_data_tool action raw_retrieve requires dataKey")
         _validate_anchor_wildcard_data_key(dataset_id, data_key)
+        anchor_token = _extract_anchor_token(data_key)
+        metadata_anchor_codes = _metadata_anchor_codes_for_dataset(state, dataset_id)
+        if metadata_anchor_codes and anchor_token and anchor_token not in metadata_anchor_codes:
+            raise RuntimeError(
+                f"Invalid ABS anchor code for {dataset_id}. The anchor token '{anchor_token}' does not appear in the metadata anchor_codes list for that dataset."
+            )
         run_dir = _ensure_runtime_dirs(conversation_id)
         start_period = str(tool_input.get("startPeriod") or "").strip() or None
         end_period = str(tool_input.get("endPeriod") or "").strip() or None
@@ -2478,6 +2484,40 @@ def _validate_anchor_wildcard_data_key(dataset_id: str, data_key: str) -> None:
             f"Received datasetId={dataset_id}, dataKey={data_key}. "
             "Choose one anchor code only and wildcard every other position."
         )
+
+
+def _extract_anchor_token(data_key: str) -> str:
+    for segment in str(data_key or "").split("."):
+        token = str(segment or "").strip()
+        if token:
+            return token
+    return ""
+
+
+def _metadata_anchor_codes_for_dataset(state, dataset_id: str) -> set[str]:
+    clean_dataset_id = str(dataset_id or "").strip()
+    if not clean_dataset_id:
+        return set()
+    for item in reversed(state.loop_history):
+        if not isinstance(item, dict):
+            continue
+        result_data = item.get("result_data") if isinstance(item.get("result_data"), dict) else {}
+        if str(result_data.get("kind") or "").strip() != "raw_metadata":
+            continue
+        if str(result_data.get("dataset_id") or "").strip() != clean_dataset_id:
+            continue
+        codes: set[str] = set()
+        for candidate in result_data.get("anchor_candidates") or []:
+            if not isinstance(candidate, dict):
+                continue
+            for code_item in candidate.get("anchor_codes") or []:
+                if not isinstance(code_item, dict):
+                    continue
+                code = str(code_item.get("code") or "").strip()
+                if code:
+                    codes.add(code)
+        return codes
+    return set()
 
 
 def _sandbox_retry_conflict(state, tool_input: Dict[str, Any]) -> Optional[str]:

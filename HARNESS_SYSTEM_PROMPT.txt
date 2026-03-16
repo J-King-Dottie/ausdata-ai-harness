@@ -152,31 +152,13 @@ Intent:
 - Use this step only after `abs_metadata_tool` has already inspected metadata for the same dataset in the current run.
 
 Instructions:
-- Never use this as the first ABS execution step after shortlist selection.
-- Use this step only after metadata for that same dataset has already been inspected in the current run.
-- Choose one anchor type from `anchor_candidates`: `MEASURE`, `DATA_ITEM`, or `CATEGORY`.
-- The anchored retrieval is anchored on that metadata-provided anchor type only: `MEASURE`, `DATA_ITEM`, or `CATEGORY`.
-- Do not invent a different anchor dimension such as product, industry, geography, adjustment type, or frequency unless metadata explicitly exposes that as the anchor candidate.
-- Once the dataset is chosen, prefer inferring the correct anchor yourself from metadata and the user request instead of asking the user.
-- Prefer `DATA_ITEM` when it names the economic concept the user asked for.
-- Prefer `MEASURE` when the measure itself is the concept being requested.
-- Use `CATEGORY` for matrix-style datasets where the broad retrievable slice is a table or category block rather than a time-series item.
-- For matrix-style datasets such as Supply Use or input-output tables, do not wait for the exact downstream row or column code before retrieval if a broader table retrieval is available.
-- For those matrix datasets, retrieval should bring back the broad published table first, and sandbox should then narrow it by codes, rows, columns, or labels.
-- For those matrix datasets, do not ask the user to define a downstream category such as “fuel”, “refined petroleum”, or a specific product grouping before the broad table retrieval if the returned table can answer that by inspection.
-- Build `dataKey` from metadata, not from guesswork.
-- Never guess the `dataKey` directly from the user request or from remembered dataset patterns.
-- When metadata provides `anchor_codes`, choose the exact anchor code from that metadata list and copy it exactly.
-- If metadata provides `wildcard_data_key_template` for the chosen anchor candidate, you must use that template.
-- Copy the `wildcard_data_key_template` exactly and replace only the anchor placeholder with one exact code.
-- Do not construct the key from `dimension_order` or any other method when a `wildcard_data_key_template` is present.
-- If no template is present, use `dimension_order` to place the one anchor code in the correct position and wildcard every other position.
-- Then use this step once with exactly one anchored segment and wildcard dots in every other segment.
-- Do not fix geography, frequency, adjustment, industry, or any other extra position in `dataKey`.
-- Do not use multiple codes in one segment such as `A+B`.
-- If you are not sure which segment should be anchored, do not guess a narrower key; use `metadata` first or ask.
-- If the dataset is plausible, do the broad retrieval and inspect returned data before saying a value, row, or slice is unavailable.
-- Only conclude that something is unavailable after retrieval plus sandbox inspection of returned rows or series keys.
+- Never use this as the first ABS step after shortlist selection. Inspect metadata for the selected dataset first.
+- Choose one metadata anchor candidate only: `MEASURE`, `DATA_ITEM`, or `CATEGORY`.
+- Choose the anchor code from that candidate's `anchor_codes` list only. Do not use dataset names, concept names, inferred mnemonics, or remembered codes unless that exact code appears in the metadata list.
+- Use the returned `wildcard_data_key_template` exactly. Replace only the anchor placeholder with that one exact code and leave every other position wildcarded.
+- Do not fix geography, frequency, adjustment, industry, product, or any other extra position in `dataKey`, and do not use multiple codes in one segment.
+- For matrix-style datasets, retrieve the broad published table first and let sandbox narrow rows, columns, or categories after retrieval.
+- If the dataset is plausible, retrieve first and inspect before concluding that a requested slice is unavailable.
 
 Expected output:
 - `step.id` must be `abs_raw_retrieve_tool`.
