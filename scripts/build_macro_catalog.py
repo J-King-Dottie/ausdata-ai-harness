@@ -42,6 +42,25 @@ def _join_search_text(parts: List[str]) -> str:
     return " ".join(deduped)
 
 
+def _entry_has_stale_signal(entry: Dict[str, Any]) -> bool:
+    entry_id = _clean_text(entry.get("entry_id"))
+    text = " ".join(
+        _clean_text(entry.get(field))
+        for field in ("entry_id", "indicator_label", "concept_label", "description", "search_text")
+    ).lower()
+    if not text and not entry_id:
+        return False
+    if re.search(r"worldbank::[0-9]+\.[0-9]+\.hcount\.", entry_id, re.I):
+        return True
+    stale_markers = (
+        "wdi database archives",
+        "database archives",
+        " archived",
+        "archive ",
+    )
+    return any(marker in text for marker in stale_markers)
+
+
 def fetch_world_bank_catalog(client: httpx.Client) -> List[Dict[str, Any]]:
     first = client.get(
         WORLD_BANK_URL,
@@ -275,6 +294,10 @@ def dedupe_entries(entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return list(deduped.values())
 
 
+def filter_stale_entries(entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    return [entry for entry in entries if not _entry_has_stale_signal(entry)]
+
+
 def main() -> None:
     with httpx.Client(follow_redirects=True) as client:
         world_bank_entries = fetch_world_bank_catalog(client)
@@ -282,7 +305,7 @@ def main() -> None:
         oecd_entries = fetch_oecd_catalog(client)
 
     entries = sorted(
-        dedupe_entries(world_bank_entries + imf_entries + oecd_entries),
+        filter_stale_entries(dedupe_entries(world_bank_entries + imf_entries + oecd_entries)),
         key=lambda item: (item["provider_key"], item["concept_label"].lower(), item["entry_id"]),
     )
     OUTPUT_PATH.write_text(json.dumps(entries, indent=2) + "\n", encoding="utf-8")

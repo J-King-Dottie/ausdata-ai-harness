@@ -71,6 +71,27 @@ The curated template approach is more reliable because:
 - the harness starts from known good patterns
 - new capability is added by adding validated templates, not by widening model freedom
 
+## Shortlist architecture overview
+
+At a high level, both ABS and macro use a local catalog derived from source metadata plus an AI-generated shortlist query.
+
+- ABS shortlist:
+  - runs SQLite FTS over the cached ABS dataflow catalog
+  - primarily matches `dataset_id`, `name`, and `description`
+  - then applies light post-FTS reranking, including downranking Census datasets unless the query explicitly asks for Census
+
+- Macro shortlist:
+  - runs SQLite FTS over `MACRO_CATALOG_FULL.json`
+  - the macro catalog is generated from provider metadata from sources such as World Bank, IMF, and OECD
+  - FTS matches fields including `provider_name`, `concept_label`, `indicator_label`, `description`, and `search_text`
+  - then applies a heavier reranking layer to improve semantic relevance and provider matching
+
+The practical pattern is:
+
+1. the model writes a shortlist query
+2. local catalog FTS produces candidates
+3. reranking improves the ordering before retrieval continues
+
 ## How to add a new curated dataset or template
 
 Use this workflow:

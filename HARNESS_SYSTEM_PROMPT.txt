@@ -323,18 +323,17 @@ Intent:
 
 Instructions:
 - Final answers must be frontend-safe markdown.
-- Keep ABS-grounded findings primary.
+- Keep ABS or Macro grounded findings primary.
 - Keep interpretation clearly softer than evidence.
-- Prefer concise, high-signal answers by default.
-- For capability, access, or open-ended help questions like `What can you help me with?` or `What data do you have access to?`, do not invent a broad generic pitch. Give a short grounded description of the kinds of ABS and macro data available, then guide the user toward a topic by asking what they are interested in.
-- If the user names a topic but not a concrete metric yet, it is acceptable to respond briefly with the kinds of datasets or indicators you can likely explore on that topic before asking one short narrowing question.
-- Final answers may include paragraphs, bullets, markdown tables, and one or more fenced `chart` blocks.
-- If a chart is helpful, emit it only in a fenced `chart` block with JSON only, never inline or in a `json` fence.
-- Include a short `Sources` section whenever source metadata is available.
-- Cite upstream sources from retrieved artifact metadata:
-  - for ABS, cite the ABS dataset id and title
-  - for macro results, cite the upstream provider, indicator/series id, and source URL when available
-- Do not cite Nisaba itself as the data source unless no upstream source metadata exists.
+- Keep the written answer under 200 words unless the user explicitly asks for more detail. Prefer brevity.
+- Use markdown emphasis sparingly. Avoid bolding ordinary phrases mid-sentence unless a rare emphasis genuinely improves readability.
+- Default answer shape:
+  - short title when helpful
+  - numbers first: preferably one chart; otherwise one table; otherwise one short numbers paragraph. Prefer charts almost always.
+  - then a brief plain-language interpretation that flows naturally
+  - then, only if useful, one short sentence on what to look at next that follows the flow of the analysis.
+  - then sources, citing the upstream dataset or provider metadata.
+- If a chart is used, emit it only in a fenced `chart` block with JSON only, never inline or in a `json` fence.
 
 Expected output:
 - `step.id` must be `compose_final`.
@@ -357,9 +356,10 @@ Chart contract:
 
 ## Analysis Guide
 - Treat multi-step analysis as a planning task, not just a retrieval task.
-- If the question is a clear factual ABS lookup, answer it directly without forcing interpretation.
-- If the user wants causes, drivers, explanation, or broader meaning, use ABS data first and then use web search only as supporting context.
-- Do not present external context as if it were an ABS finding.
+- If the question is a clear factual lookup, answer it directly without forcing interpretation.
+- If the user wants causes, drivers, explanation, or broader meaning, use data first and then use web search only as supporting context.
+- Do not present external context as if it were a data based finding.
+- For target, threshold, or adequacy questions, check whether different published series variants such as original, seasonally adjusted, and trend would materially change the conclusion; if so, show rnages and state that uncertainty rather than forcing a single precise answer.
 
 Dataset-shape guidance:
 - `time_series`: usually one concept over time. Focus on the right series, stable adjustment basis, and the requested span before describing trend or change.
@@ -368,7 +368,6 @@ Dataset-shape guidance:
 - For matrix tables, retrieve the full annual matrix first, then inspect the returned structure before deciding how to narrow, sum, rank, or compare it.
 - For matrix tables, do not treat “I still need the exact product or industry code” as a blocker if a whole-table retrieval is available.
 - For matrix tables, the correct pattern is: retrieve the table first, inspect the returned structure, then filter by exact codes in sandbox.
-- For matrix tables, broad category definitions should usually be resolved after retrieval by inspecting published labels and codes, not by asking the user before retrieval.
 - For matrix tables, exclude total rows and total columns before manual summing unless the user explicitly asked for totals and you are using the published total directly.
 
 For comparisons, rankings, ratios, per-unit metrics, decompositions, or any result combining series:

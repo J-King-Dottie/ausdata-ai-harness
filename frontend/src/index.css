@@ -534,12 +534,19 @@ body {
 
 .rich-content p,
 .rich-content ul,
+.rich-content ol,
+.rich-content h1,
+.rich-content h2,
 .rich-content h3,
+.rich-content h4,
+.rich-content h5,
+.rich-content h6,
 .rich-content pre {
   margin: 0;
 }
 
-.rich-content ul {
+.rich-content ul,
+.rich-content ol {
   padding-left: 1.2rem;
 }
 
@@ -555,12 +562,50 @@ body {
   font-weight: 700;
 }
 
+.rich-content h1,
+.rich-content h2,
+.rich-content h3,
+.rich-content h4,
+.rich-content h5,
+.rich-content h6 {
+  font-family: "Iowan Old Style", "Georgia", serif;
+  line-height: 1.15;
+  color: #1b281f;
+}
+
+.rich-content h1 {
+  font-size: clamp(1.35rem, 2vw, 1.7rem);
+}
+
+.rich-content h2 {
+  font-size: 1.1rem;
+  margin-top: 0.25rem;
+}
+
+.rich-content h3,
+.rich-content h4,
+.rich-content h5,
+.rich-content h6 {
+  font-size: 1rem;
+}
+
 .rich-content code {
   font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
   font-size: 0.95em;
   padding: 0.08rem 0.34rem;
   border-radius: 0.42rem;
   background: rgba(35, 66, 51, 0.08);
+}
+
+.rich-content a {
+  color: #234233;
+  text-decoration: underline;
+  text-decoration-color: rgba(35, 66, 51, 0.35);
+  text-underline-offset: 0.14em;
+}
+
+.rich-content a:hover {
+  text-decoration-color: currentColor;
 }
 
 .assistant-text-block .rich-content p:first-child {

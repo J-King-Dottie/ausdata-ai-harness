@@ -67,15 +67,17 @@ interface ChartSpec {
 }
 
 type ContentBlock =
+  | { type: "heading"; level: 1 | 2 | 3 | 4 | 5 | 6; text: string }
   | { type: "paragraph"; lines: string[] }
   | { type: "list"; items: string[] }
+  | { type: "ordered-list"; items: string[] }
   | { type: "table"; headers: string[]; rows: string[][] }
   | { type: "code"; code: string; language: string }
   | { type: "chart"; spec: ChartSpec };
 
 function renderInlineMarkdown(value: string): ReactNode[] {
   const nodes: ReactNode[] = [];
-  const pattern = /(`[^`]+`|\*\*[^*]+\*\*)/g;
+  const pattern = /(\[[^\]]+\]\([^)]+\)|`[^`]+`|\*\*[^*]+\*\*)/g;
   let lastIndex = 0;
   let match: RegExpExecArray | null = null;
   let key = 0;
@@ -85,7 +87,18 @@ function renderInlineMarkdown(value: string): ReactNode[] {
       nodes.push(value.slice(lastIndex, match.index));
     }
     const token = match[0];
-    if (token.startsWith("`")) {
+    if (token.startsWith("[")) {
+      const linkMatch = token.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+      if (linkMatch) {
+        nodes.push(
+          <a key={`link-${key++}`} href={linkMatch[2]} target="_blank" rel="noreferrer">
+            {linkMatch[1]}
+          </a>
+        );
+      } else {
+        nodes.push(token);
+      }
+    } else if (token.startsWith("`")) {
       nodes.push(<code key={`code-${key++}`}>{token.slice(1, -1)}</code>);
     } else if (token.startsWith("**")) {
       nodes.push(<strong key={`strong-${key++}`}>{token.slice(2, -2)}</strong>);
@@ -178,6 +191,17 @@ function maybeChartLanguage(language: string) {
   return language === "chart" || language === "json" || language === "";
 }
 
+function parseHeadingLine(value: string) {
+  const match = value.trim().match(/^(#{1,6})\s+(.+)$/);
+  if (!match) {
+    return null;
+  }
+  return {
+    level: match[1].length as 1 | 2 | 3 | 4 | 5 | 6,
+    text: match[2].trim(),
+  };
+}
+
 function parseContentBlocks(value: string): ContentBlock[] {
   const normalized = value.replace(/\r\n/g, "\n").trim();
   if (!normalized) {
@@ -193,6 +217,13 @@ function parseContentBlocks(value: string): ContentBlock[] {
     const trimmed = line.trim();
 
     if (!trimmed) {
+      index += 1;
+      continue;
+    }
+
+    const heading = parseHeadingLine(trimmed);
+    if (heading) {
+      blocks.push({ type: "heading", level: heading.level, text: heading.text });
       index += 1;
       continue;
     }
@@ -244,6 +275,16 @@ function parseContentBlocks(value: string): ContentBlock[] {
       continue;
     }
 
+    if (/^\d+\.\s+/.test(trimmed)) {
+      const items: string[] = [];
+      while (index < lines.length && /^\d+\.\s+/.test(lines[index].trim())) {
+        items.push(lines[index].trim().replace(/^\d+\.\s+/, ""));
+        index += 1;
+      }
+      blocks.push({ type: "ordered-list", items });
+      continue;
+    }
+
     const paragraphLines: string[] = [];
     while (index < lines.length) {
       const candidate = lines[index];
@@ -251,7 +292,12 @@ function parseContentBlocks(value: string): ContentBlock[] {
       if (!candidateTrimmed) {
         break;
       }
-      if (candidateTrimmed.startsWith("```") || candidateTrimmed.startsWith("- ")) {
+      if (
+        candidateTrimmed.startsWith("```") ||
+        candidateTrimmed.startsWith("- ") ||
+        /^\d+\.\s+/.test(candidateTrimmed) ||
+        parseHeadingLine(candidateTrimmed)
+      ) {
         break;
       }
       if (
@@ -563,6 +609,11 @@ function NisabaLoader() {
 function renderContentBlocks(value: string) {
   const blocks = parseContentBlocks(value);
   return blocks.map((block, index) => {
+    if (block.type === "heading") {
+      const HeadingTag = `h${block.level}` as const;
+      return <HeadingTag key={`heading-${index}`}>{renderInlineMarkdown(block.text)}</HeadingTag>;
+    }
+
     if (block.type === "paragraph") {
       return (
         <p key={`p-${index}`}>
@@ -583,6 +634,16 @@ function renderContentBlocks(value: string) {
             <li key={`item-${itemIndex}`}>{renderInlineMarkdown(item)}</li>
           ))}
         </ul>
+      );
+    }
+
+    if (block.type === "ordered-list") {
+      return (
+        <ol key={`olist-${index}`}>
+          {block.items.map((item, itemIndex) => (
+            <li key={`oitem-${itemIndex}`}>{renderInlineMarkdown(item)}</li>
+          ))}
+        </ol>
       );
     }
 

@@ -582,22 +582,16 @@ def _search_macro_catalog(query: str, explicit_provider: Optional[str], limit: i
         """,
         (fts_query, max(limit * 25, 200)),
     ).fetchall()
-
-    candidates: List[tuple[float, MacroCatalogEntry]] = []
-    for index, row in enumerate(rows):
+    candidates: List[MacroCatalogEntry] = []
+    for row in rows:
         entry = _CATALOG_ENTRY_BY_ID.get(str(row["entry_id"]))
         if entry is None:
             continue
-        score = _rerank_macro_entry(query, entry, explicit_provider, base_rank=index)
-        candidates.append((score, entry))
+        if explicit_provider and entry.provider_key != explicit_provider:
+            continue
+        candidates.append(entry)
 
-    if not candidates:
-        for index, entry in enumerate(_CATALOG_ENTRIES):
-            score = _rerank_macro_entry(query, entry, explicit_provider, base_rank=index + 20)
-            candidates.append((score, entry))
-
-    candidates.sort(key=lambda item: item[0], reverse=True)
-    return [entry for _, entry in candidates[:limit]]
+    return candidates[:limit]
 
 
 def _catalog_preview_labels(limit: int = 8) -> str:
@@ -637,97 +631,10 @@ def build_macro_shortlist(query: str, limit: int = 20) -> Dict[str, Any]:
     }
 
 
-def _rerank_macro_entry(query: str, entry: MacroCatalogEntry, explicit_provider: Optional[str], *, base_rank: int) -> float:
-    normalized_query = _normalize_catalog_query(query)
-    search_text = _normalize_text(entry.search_text)
-    indicator_text = _normalize_text(entry.indicator_label)
-    score = max(0.0, 30.0 - float(base_rank * 2))
-    mismatch_count = 0
-
-    if explicit_provider and entry.provider_key == explicit_provider:
-        score += 60.0
-    elif explicit_provider and entry.provider_key != explicit_provider:
-        score -= 25.0
-
-    if entry.indicator_label and _normalize_text(entry.indicator_label) in normalized_query:
-        score += 25.0
-    if entry.concept_label and _normalize_text(entry.concept_label) in normalized_query:
-        score += 18.0
-
-    for token in ("gdp", "inflation", "unemployment", "productivity", "population", "debt", "employment", "manufacturing"):
-        if _contains_token(normalized_query, token) and _contains_token(indicator_text, token):
-            score += 10.0
-
-    query_tokens = [token for token in normalized_query.split() if token]
-    token_hits = sum(1 for token in query_tokens if _contains_token(search_text, token))
-    score += token_hits * 2.5
-
-    for key, terms in DISCRIMINATOR_TERMS.items():
-        query_has = any(term in normalized_query for term in terms)
-        entry_has = any(term in search_text for term in terms)
-        if query_has and entry_has:
-            score += 8.0
-        elif query_has and not entry_has and key in {"gdp", "inflation", "unemployment", "employment", "manufacturing", "debt", "productivity"}:
-            score -= 20.0
-            mismatch_count += 1
-
-    if "employment" in normalized_query and "unemployment" in search_text:
-        score -= 35.0
-        mismatch_count += 1
-    if "unemployment" in normalized_query and "employment" in search_text and "unemployment" not in search_text:
-        score -= 20.0
-        mismatch_count += 1
-    if "manufacturing" in normalized_query and "manufacturing" not in search_text:
-        score -= 25.0
-        mismatch_count += 1
-    if "industry" in normalized_query and "industry" not in search_text and "activity" not in search_text:
-        score -= 12.0
-        mismatch_count += 1
-
-    for config in SPECIFICITY_TERMS.values():
-        terms = config["terms"]
-        query_has = any(term in normalized_query for term in terms)
-        entry_has = any(term in search_text for term in terms)
-        if entry_has and not query_has:
-            score -= float(config["penalty"])
-        elif query_has and entry_has:
-            score += float(config["boost"])
-
-    if mismatch_count >= 2:
-        score -= 20.0
-
-    return score
-
-
 def _normalize_text(value: str) -> str:
     return re.sub(r"[^a-z0-9\s]+", " ", str(value or "").lower()).strip()
 
 
-def _contains_token(text: str, token: str) -> bool:
-    return bool(re.search(rf"(?<![a-z0-9]){re.escape(token)}(?![a-z0-9])", text))
-
-
-def _active_core_signals(query: str) -> List[str]:
-    normalized = _normalize_catalog_query(query)
-    core_order = ["gdp", "inflation", "unemployment", "employment", "debt", "productivity", "population", "manufacturing"]
-    active: List[str] = []
-    for key in core_order:
-        terms = DISCRIMINATOR_TERMS.get(key, [])
-        if any(term in normalized for term in terms):
-            active.append(key)
-    return active
-
-
-def _entry_matches_core_signals(query: str, entry: MacroCatalogEntry) -> bool:
-    active = _active_core_signals(query)
-    if not active:
-        return True
-    search_text = _normalize_text(entry.search_text)
-    for key in active:
-        terms = DISCRIMINATOR_TERMS.get(key, [])
-        if not any(term in search_text for term in terms):
-            return False
-    return True
 
 
 def detect_explicit_provider(query: str) -> Optional[str]:
