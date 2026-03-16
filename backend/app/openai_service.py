@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 from threading import Event, Lock
 from typing import Any, Callable, Dict, List, Optional
+from urllib.parse import urlencode
 
 import httpx
 
@@ -736,7 +737,7 @@ def _detect_provider_route(user_message: str) -> Dict[str, str]:
 
     if has_abs_hint:
         return {
-            "preferred_tool": "abs_data_tool",
+            "preferred_tool": "abs_metadata_tool",
             "provider_route": "abs",
             "routing_reason": "The query appears ABS-specific.",
         }
@@ -763,7 +764,7 @@ def _detect_provider_route(user_message: str) -> Dict[str, str]:
         }
 
     return {
-        "preferred_tool": "abs_data_tool",
+        "preferred_tool": "abs_metadata_tool",
         "provider_route": "abs",
         "routing_reason": "Defaulting to ABS-first retrieval.",
     }
@@ -918,6 +919,8 @@ def _build_raw_metadata_payload(dataset_id: str, metadata: Dict[str, Any]) -> Di
         code_values = [
             {
                 "code": str(code.get("id") or "").strip(),
+                "label": str(code.get("name") or "").strip(),
+                "description": str(code.get("description") or "").strip(),
             }
             for code in _to_list(codes.get("codes"))
             if isinstance(code, dict) and str(code.get("id") or "").strip()
@@ -931,6 +934,7 @@ def _build_raw_metadata_payload(dataset_id: str, metadata: Dict[str, Any]) -> Di
                     "dimension_id": dimension_id,
                     "anchor_description": concept_name,
                     "position": int(dimension.get("position") or 0),
+                    "anchor_codes": code_values,
                 }
             )
 
@@ -951,6 +955,7 @@ def _build_raw_metadata_payload(dataset_id: str, metadata: Dict[str, Any]) -> Di
             "anchor_type": anchor_type,
             "anchor_description": str(row.get("anchor_description") or anchor_type).strip(),
             "wildcard_data_key_template": _wildcard_template_for(dimension_id),
+            "anchor_codes": row.get("anchor_codes") or [],
         }
         existing = anchor_candidates_by_type.get(anchor_type)
         if existing is None:
@@ -1654,7 +1659,7 @@ def _execute_abs_data_tool(
     if action == "metadata":
         if not dataset_id:
             raise RuntimeError("abs_data_tool action metadata requires datasetId")
-        metadata = get_dataflow_metadata(dataset_id, force_refresh=True)
+        metadata = get_dataflow_metadata(dataset_id, force_refresh=False)
         if not isinstance(metadata, dict):
             raise RuntimeError(f"Live ABS metadata for {dataset_id} was not an object")
         payload = _build_raw_metadata_payload(dataset_id, metadata)
@@ -1683,8 +1688,20 @@ def _execute_abs_data_tool(
             str(tool_input.get("dimensionAtObservation") or "").strip()
             or "TIME_PERIOD"
         )
+        query_params = {
+            "detail": detail,
+            "dimensionAtObservation": dimension_at_observation,
+        }
+        if start_period:
+            query_params["startPeriod"] = start_period
+        if end_period:
+            query_params["endPeriod"] = end_period
+        abs_request_url = (
+            f"{settings.abs_api_base.rstrip('/')}/rest/data/{dataset_id}/{data_key}"
+            f"?{urlencode(query_params)}"
+        )
         logger.info(
-            "ABS raw_retrieve request cid=%s datasetId=%s dataKey=%s detail=%s dimensionAtObservation=%s startPeriod=%s endPeriod=%s",
+            "ABS raw_retrieve request cid=%s datasetId=%s dataKey=%s detail=%s dimensionAtObservation=%s startPeriod=%s endPeriod=%s url=%s",
             conversation_id,
             dataset_id,
             data_key,
@@ -1692,6 +1709,7 @@ def _execute_abs_data_tool(
             dimension_at_observation,
             start_period,
             end_period,
+            abs_request_url,
         )
         try:
             resolved_payload = resolve_dataset(
@@ -1760,6 +1778,36 @@ def _execute_abs_data_tool(
         )
 
     raise RuntimeError(f"Unsupported abs_data_tool action: {action}")
+
+
+def _execute_abs_metadata_tool(
+    *,
+    tool_input: Dict[str, Any],
+    state,
+    conversation_id: str,
+) -> Dict[str, Any]:
+    delegated_input = dict(tool_input or {})
+    delegated_input["action"] = "metadata"
+    return _execute_abs_data_tool(
+        tool_input=delegated_input,
+        state=state,
+        conversation_id=conversation_id,
+    )
+
+
+def _execute_abs_raw_retrieve_tool(
+    *,
+    tool_input: Dict[str, Any],
+    state,
+    conversation_id: str,
+) -> Dict[str, Any]:
+    delegated_input = dict(tool_input or {})
+    delegated_input["action"] = "raw_retrieve"
+    return _execute_abs_data_tool(
+        tool_input=delegated_input,
+        state=state,
+        conversation_id=conversation_id,
+    )
 
 
 def _summarize_sandbox_result(result: Dict[str, Any], created_ids: List[str]) -> str:
@@ -2313,7 +2361,8 @@ def _classify_tool_failure(step_id: str, error_text: str, tool_input: Dict[str, 
     clean_error = str(error_text or "").strip()
     tool_name = {
         "provider_route_tool": "provider_route_tool",
-        "abs_data_tool": "abs_data_tool",
+        "abs_metadata_tool": "abs_metadata_tool",
+        "abs_raw_retrieve_tool": "abs_raw_retrieve_tool",
         "macro_data_tool": "macro_data_tool",
         "web_search_tool": "web_search_tool",
         "sandbox_tool": "sandbox_tool",
@@ -2485,13 +2534,6 @@ def _count_recent_harness_parse_failures(state) -> int:
 
 
 def _retry_reasoning_effort(state) -> Optional[str]:
-    last_entry = state.loop_history[-1] if state.loop_history else None
-    if not isinstance(last_entry, dict):
-        return None
-    result_data = last_entry.get("result_data") if isinstance(last_entry.get("result_data"), dict) else {}
-    kind = str(result_data.get("kind") or "").strip()
-    if kind in {"tool_error", "model_call_error", "harness_parse_error"}:
-        return "medium"
     return None
 
 
@@ -2832,7 +2874,7 @@ def generate_response(
                 _truncate(step.get("summary") or "", 220),
                 _truncate(progress_note, 220),
             )
-            if step["id"] in {"provider_route_tool", "abs_data_tool", "macro_data_tool", "web_search_tool", "sandbox_tool"}:
+            if step["id"] in {"provider_route_tool", "abs_metadata_tool", "abs_raw_retrieve_tool", "macro_data_tool", "web_search_tool", "sandbox_tool"}:
                 logger.info(
                     'Loop tool input cid=%s loop=%s step=%s input="%s"',
                     conversation_id,
@@ -2888,8 +2930,14 @@ def generate_response(
                         state=state,
                         conversation_id=conversation_id,
                     )
-                elif step["id"] == "abs_data_tool":
-                    tool_result = _execute_abs_data_tool(
+                elif step["id"] == "abs_metadata_tool":
+                    tool_result = _execute_abs_metadata_tool(
+                        tool_input=model_output["tool_input"],
+                        state=state,
+                        conversation_id=conversation_id,
+                    )
+                elif step["id"] == "abs_raw_retrieve_tool":
+                    tool_result = _execute_abs_raw_retrieve_tool(
                         tool_input=model_output["tool_input"],
                         state=state,
                         conversation_id=conversation_id,
@@ -2963,14 +3011,6 @@ def generate_response(
                     if resolved_route == "abs":
                         pre_run_macro_indicator_shortlist = []
                         state.current_macro_indicator_shortlist = []
-            if step["id"] == "abs_data_tool" and isinstance(result_data, dict):
-                result_kind = str(result_data.get("kind") or "").strip()
-                if result_kind == "discover":
-                    datasets = result_data.get("datasets") if isinstance(result_data.get("datasets"), list) else []
-                    pre_run_dataset_shortlist = [item for item in datasets if isinstance(item, dict)]
-                    state.current_abs_dataset_shortlist = list(pre_run_dataset_shortlist)
-                elif result_kind == "discover_exhausted":
-                    pre_run_dataset_shortlist = list(getattr(state, "current_abs_dataset_shortlist", []) or [])
             if step["id"] == "macro_data_tool" and isinstance(result_data, dict):
                 result_kind = str(result_data.get("kind") or "").strip()
                 if result_kind == "macro_indicator_shortlist":

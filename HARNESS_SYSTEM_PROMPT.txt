@@ -89,7 +89,8 @@ After retrieval:
 ## Actions
 Select exactly one `step.id` from this list:
 - `provider_route_tool`
-- `abs_data_tool`
+- `abs_metadata_tool`
+- `abs_raw_retrieve_tool`
 - `macro_data_tool`
 - `web_search_tool`
 - `sandbox_tool`
@@ -118,34 +119,41 @@ Expected output:
   - `searchQuery`
   - optional `reason`
 
-### `abs_data_tool`
+### `abs_metadata_tool`
 Intent:
-- Use this step after the provider path has been selected as `abs` to choose the best ABS dataset from `pre_run_dataset_shortlist`, inspect metadata, choose one anchor, and run one strict anchor-plus-wildcards retrieval.
+- Use this step after the provider path has been selected as `abs` to choose the best ABS dataset from `pre_run_dataset_shortlist` and inspect its metadata.
 
 Dataset choice instructions:
 - Start from `pre_run_dataset_shortlist`.
 - If one dataset is clearly best, use it. If multiple candidates remain materially plausible, ask one short clarification question with a recommendation instead of guessing.
 - Follow the clarification policy above.
-- Use only `discover`, `metadata`, and `raw_retrieve` for ABS in the current flow.
+- After selecting the dataset, the first ABS execution step should be `abs_metadata_tool`.
 
-`metadata` instructions:
-- Use `metadata` before any `raw_retrieve`.
+Instructions:
+- Use this step before any ABS raw retrieval.
 - In metadata, inspect `anchor_candidates` only.
 - Each anchor candidate gives you:
   - the anchor type, which will be one of `MEASURE`, `DATA_ITEM`, or `CATEGORY`
   - the anchor description from raw metadata
   - the `wildcard_data_key_template`
+  - `anchor_codes`: the exact code options for that anchor, with labels/descriptions when available
 - Metadata tells you the correct wildcard shape for the dataset. Use it as the source of truth for key geometry.
+- Use the returned `anchor_codes` to choose the exact anchor code. Do not guess the code from memory or from the user wording alone if metadata already gives you the code options.
 - Do not conclude that data is unavailable from metadata alone.
 
-`metadata` expected output:
-- `step.id` must be `abs_data_tool`.
-- `model_output.tool_name` must be `abs_data_tool`.
+Expected output:
+- `step.id` must be `abs_metadata_tool`.
+- `model_output.tool_name` must be `abs_metadata_tool`.
 - `model_output.tool_input` must be:
-  - `action`
   - `datasetId`
 
-`raw_retrieve` instructions:
+### `abs_raw_retrieve_tool`
+Intent:
+- Use this step only after `abs_metadata_tool` has already inspected metadata for the same dataset in the current run.
+
+Instructions:
+- Never use this as the first ABS execution step after shortlist selection.
+- Use this step only after metadata for that same dataset has already been inspected in the current run.
 - Choose one anchor type from `anchor_candidates`: `MEASURE`, `DATA_ITEM`, or `CATEGORY`.
 - The anchored retrieval is anchored on that metadata-provided anchor type only: `MEASURE`, `DATA_ITEM`, or `CATEGORY`.
 - Do not invent a different anchor dimension such as product, industry, geography, adjustment type, or frequency unless metadata explicitly exposes that as the anchor candidate.
@@ -157,20 +165,23 @@ Dataset choice instructions:
 - For those matrix datasets, retrieval should bring back the broad published table first, and sandbox should then narrow it by codes, rows, columns, or labels.
 - For those matrix datasets, do not ask the user to define a downstream category such as “fuel”, “refined petroleum”, or a specific product grouping before the broad table retrieval if the returned table can answer that by inspection.
 - Build `dataKey` from metadata, not from guesswork.
-- If metadata provides `wildcard_data_key_template` for the chosen anchor candidate, copy that template exactly and replace only the anchor placeholder with one exact code.
+- Never guess the `dataKey` directly from the user request or from remembered dataset patterns.
+- When metadata provides `anchor_codes`, choose the exact anchor code from that metadata list and copy it exactly.
+- If metadata provides `wildcard_data_key_template` for the chosen anchor candidate, you must use that template.
+- Copy the `wildcard_data_key_template` exactly and replace only the anchor placeholder with one exact code.
+- Do not construct the key from `dimension_order` or any other method when a `wildcard_data_key_template` is present.
 - If no template is present, use `dimension_order` to place the one anchor code in the correct position and wildcard every other position.
-- Then use `raw_retrieve` once with exactly one anchored segment and wildcard dots in every other segment.
+- Then use this step once with exactly one anchored segment and wildcard dots in every other segment.
 - Do not fix geography, frequency, adjustment, industry, or any other extra position in `dataKey`.
 - Do not use multiple codes in one segment such as `A+B`.
 - If you are not sure which segment should be anchored, do not guess a narrower key; use `metadata` first or ask.
 - If the dataset is plausible, do the broad retrieval and inspect returned data before saying a value, row, or slice is unavailable.
 - Only conclude that something is unavailable after retrieval plus sandbox inspection of returned rows or series keys.
 
-`raw_retrieve` expected output:
-- `step.id` must be `abs_data_tool`.
-- `model_output.tool_name` must be `abs_data_tool`.
+Expected output:
+- `step.id` must be `abs_raw_retrieve_tool`.
+- `model_output.tool_name` must be `abs_raw_retrieve_tool`.
 - `model_output.tool_input` must be:
-  - `action`
   - `datasetId`
   - `dataKey`
 - `datasetId` and `dataKey` must be ids copied exactly from tool output and metadata order, not prose.
@@ -182,26 +193,14 @@ Strict `dataKey` examples:
 - Invalid: `.GPM..AUS.Q`
 - Invalid: `M9+M10....`
 
-`discover` instructions:
-- Use `discover` only if `pre_run_dataset_shortlist` is missing or clearly inadequate.
-- `discover` means generate a better dataset search query and rerun the FTS shortlist search with that query.
-- This should be rare fallback behavior, not the default first move.
-- Use at most two broader `discover` retries in one run.
-- After two broader retries, stop discovery. If the last shortlist still contains near-miss candidates, tell the user what you found and ask if any are interesting; otherwise say no suitable ABS dataset was found.
-
-`discover` expected output:
-- `step.id` must be `abs_data_tool`.
-- `model_output.tool_name` must be `abs_data_tool`.
-- `model_output.tool_input` must be:
-  - `action`
-  - `searchQuery`
-
 ### `sandbox_tool`
 Intent:
 - Use this step to inspect retrieved artifacts, narrow to observed valid combinations, calculate or compare, and prepare chart-ready data.
 
 Instructions:
 - Choose artifact ids only from `available_artifacts` in the current loop payload.
+- Pass only the minimum artifact ids needed for this sandbox step.
+- Usually this should be one artifact unless the analysis genuinely requires combining multiple retrieved artifacts.
 - Use sandbox only on data that has already been retrieved.
 - Do not use sandbox as the discovery path for new ABS data.
 - Work in this order:

@@ -105,8 +105,16 @@ def _normalize_payload_shape(payload: Dict[str, Any]) -> Dict[str, Any]:
             inferred_step_id = "web_search_tool"
         elif tool_name == "macro_data_tool":
             inferred_step_id = "macro_data_tool"
-        elif tool_name == "abs_data_tool" or str(normalized.get("action") or "").strip():
-            inferred_step_id = "abs_data_tool"
+        elif tool_name == "abs_metadata_tool":
+            inferred_step_id = "abs_metadata_tool"
+        elif tool_name == "abs_raw_retrieve_tool":
+            inferred_step_id = "abs_raw_retrieve_tool"
+        elif str(normalized.get("action") or "").strip():
+            action = str(normalized.get("action") or "").strip()
+            if action == "metadata":
+                inferred_step_id = "abs_metadata_tool"
+            elif action == "raw_retrieve":
+                inferred_step_id = "abs_raw_retrieve_tool"
         elif tool_name == "sandbox_tool" or (
             isinstance(tool_input, dict)
             and (
@@ -137,8 +145,11 @@ def _normalize_payload_shape(payload: Dict[str, Any]) -> Dict[str, Any]:
         }
     elif tool_name or isinstance(tool_input, dict):
         if not tool_name:
-            if str(normalized.get("action") or "").strip():
-                tool_name = "abs_data_tool"
+            action = str(normalized.get("action") or "").strip()
+            if action == "metadata":
+                tool_name = "abs_metadata_tool"
+            elif action == "raw_retrieve":
+                tool_name = "abs_raw_retrieve_tool"
             elif isinstance(tool_input, dict) and (
                 "artifact_ids" in tool_input or "code" in tool_input
             ):
@@ -374,7 +385,7 @@ def parse_harness_loop_output(raw_text: str) -> Dict[str, Any]:
             last_error = _schema_error("model_output must be an object", validation_path="model_output")
             continue
 
-        if step_id in {"provider_route_tool", "abs_data_tool", "macro_data_tool", "web_search_tool", "sandbox_tool"}:
+        if step_id in {"provider_route_tool", "abs_metadata_tool", "abs_raw_retrieve_tool", "macro_data_tool", "web_search_tool", "sandbox_tool"}:
             tool_name = str(model_output.get("tool_name") or "").strip()
             tool_input = model_output.get("tool_input")
             if not tool_name:
@@ -392,8 +403,10 @@ def parse_harness_loop_output(raw_text: str) -> Dict[str, Any]:
             expected = (
                 "provider_route_tool"
                 if step_id == "provider_route_tool"
-                else "abs_data_tool"
-                if step_id == "abs_data_tool"
+                else "abs_metadata_tool"
+                if step_id == "abs_metadata_tool"
+                else "abs_raw_retrieve_tool"
+                if step_id == "abs_raw_retrieve_tool"
                 else "macro_data_tool"
                 if step_id == "macro_data_tool"
                 else "web_search_tool"

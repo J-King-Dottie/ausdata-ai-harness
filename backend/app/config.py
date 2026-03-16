@@ -18,6 +18,7 @@ class Settings(BaseModel):
     openai_api_key: str
     openai_model: str = "gpt-5.4"
     openai_reasoning_effort: str = "low"
+    abs_api_base: str = "https://data.api.abs.gov.au"
     worldbank_base_url: str = "https://api.worldbank.org/v2"
     imf_base_url: str = "https://www.imf.org/external/datamapper/api/v1"
     oecd_base_url: str = "https://sdmx.oecd.org/public/rest"
@@ -55,6 +56,10 @@ def get_settings() -> Settings:
     worldbank_base_url = os.getenv("WORLDBANK_BASE_URL")
     if worldbank_base_url:
         overrides["worldbank_base_url"] = worldbank_base_url
+
+    abs_api_base = os.getenv("ABS_API_BASE")
+    if abs_api_base:
+        overrides["abs_api_base"] = abs_api_base
 
     imf_base_url = os.getenv("IMF_BASE_URL")
     if imf_base_url:
