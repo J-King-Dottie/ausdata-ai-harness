@@ -16,7 +16,7 @@ from urllib.parse import urlencode
 
 import httpx
 from openpyxl import Workbook
-from openpyxl.chart import BarChart, LineChart, Reference
+from openpyxl.styles import Font
 from openpyxl.styles import Alignment
 
 from .config import get_settings
@@ -798,6 +798,153 @@ def _rows_from_artifact(record: Dict[str, Any]) -> List[Dict[str, str]]:
     ]
 
 
+def _chart_table(chart_spec: Dict[str, Any]) -> tuple[List[str], List[List[Any]]]:
+    series = chart_spec.get("series") if isinstance(chart_spec.get("series"), list) else []
+    if not series:
+        return [], []
+    x_values: List[str] = []
+    for entry in series:
+        if not isinstance(entry, dict):
+            continue
+        for point in entry.get("points") or []:
+            if not isinstance(point, dict):
+                continue
+            x = str(point.get("x") or "").strip()
+            if x and x not in x_values:
+                x_values.append(x)
+    headers = [str(chart_spec.get("xLabel") or "Metric").strip() or "Metric"]
+    headers.extend(str(entry.get("name") or "Series").strip() or "Series" for entry in series if isinstance(entry, dict))
+    rows: List[List[Any]] = []
+    for x in x_values:
+        row: List[Any] = [x]
+        for entry in series:
+            point_map = {
+                str(point.get("x") or "").strip(): point.get("y")
+                for point in (entry.get("points") or [])
+                if isinstance(point, dict)
+            }
+            row.append(point_map.get(x))
+        rows.append(row)
+    return headers, rows
+
+
+def _summary_calc_table(calc_rows: List[Dict[str, str]]) -> tuple[List[str], List[List[str]]]:
+    headers = ["Calculation", "Description"]
+    rows: List[List[str]] = []
+    for index, row in enumerate(calc_rows, start=1):
+        metric = str(row.get("detail") or f"Calculation {index}").strip() or f"Calculation {index}"
+        description = str(row.get("method") or "").strip() or str(row.get("value") or "").strip()
+        rows.append([metric, description])
+    return headers, rows
+
+
+def _safe_sheet_name(value: str, used: set[str]) -> str:
+    cleaned = re.sub(r"[\\/*?:\\[\\]]+", " ", str(value or "").strip())[:31].strip() or "Sheet"
+    candidate = cleaned
+    suffix = 2
+    while candidate in used:
+        tail = f" {suffix}"
+        candidate = (cleaned[: 31 - len(tail)] + tail).strip()
+        suffix += 1
+    used.add(candidate)
+    return candidate
+
+
+def _safe_export_filename(user_message: str) -> str:
+    words = re.findall(r"[A-Za-z0-9]+", str(user_message or "").lower())
+    meaningful = [word for word in words if len(word) > 2][:6]
+    stem = "-".join(meaningful) or "analysis-export"
+    stem = stem[:64].strip("-") or "analysis-export"
+    return f"{stem}.xlsx"
+
+
+def _write_table(sheet, headers: List[Any], rows: List[List[Any]]) -> None:
+    if headers:
+        sheet.append(headers)
+    for row in rows:
+        sheet.append(row)
+
+
+def _apply_export_theme(workbook) -> None:
+    summary = workbook["Summary"] if "Summary" in workbook.sheetnames else None
+    if summary is None:
+        return
+
+    title_font = Font(color="234233", size=16)
+    section_font = Font(color="8F6A3A", size=12)
+    header_font = Font(color="54745F", size=11)
+
+    for cell in summary[1]:
+        cell.font = title_font
+
+    for row in range(1, summary.max_row + 1):
+        first_value = str(summary.cell(row=row, column=1).value or "").strip()
+        if first_value in {"Presented data", "Calculations"}:
+            summary.cell(row=row, column=1).font = section_font
+            continue
+        values = [str(summary.cell(row=row, column=col).value or "").strip() for col in range(1, summary.max_column + 1)]
+        non_empty = [value for value in values if value]
+        if len(non_empty) >= 2 and row > 1:
+            for col in range(1, len(values) + 1):
+                summary.cell(row=row, column=col).font = header_font
+            break
+
+
+def _artifact_call_structure(record: Dict[str, Any], payload: Any) -> str:
+    kind = str(record.get("kind") or "").strip()
+    if not isinstance(payload, dict):
+        return str(record.get("summary") or "").strip()
+
+    if kind == "macro_query_response":
+        api_request_url = str(payload.get("response", {}).get("api_request_url") or payload.get("api_request_url") or "").strip() if isinstance(payload.get("response"), dict) or isinstance(payload.get("api_request_url"), str) else ""
+        if api_request_url:
+            return api_request_url
+        source_urls = [
+            str(item.get("url") or "").strip()
+            for item in (payload.get("source_references") or [])
+            if isinstance(item, dict) and str(item.get("url") or "").strip()
+        ]
+        return source_urls[0] if source_urls else str(record.get("summary") or "").strip()
+
+    if kind == "abs_resolved_dataset":
+        retrieval = payload.get("retrieval") if isinstance(payload.get("retrieval"), dict) else {}
+        dataset_id = str(retrieval.get("datasetId") or "").strip()
+        data_key = str(retrieval.get("dataKey") or "").strip()
+        params = []
+        for key in ["startPeriod", "endPeriod", "detail", "dimensionAtObservation"]:
+            value = str(retrieval.get(key) or "").strip()
+            if value:
+                params.append(f"{key}={value}")
+        base = f"https://data.api.abs.gov.au/rest/data/{dataset_id}/{data_key}" if dataset_id and data_key else ""
+        if base and params:
+            return base + "?" + "&".join(params)
+        if retrieval:
+            return _safe_sheet_text(json.dumps(retrieval, ensure_ascii=False))
+
+    return str(record.get("summary") or "").strip()
+
+
+def _write_raw_artifact_sheet(sheet, record: Dict[str, Any]) -> None:
+    payload = _load_artifact_payload(record)
+    source_lines = _source_reference_lines(record.get("source_references"))
+    source_line = source_lines[0] if source_lines else str(record.get("label") or "").strip()
+    call_line = _artifact_call_structure(record, payload)
+
+    sheet["A1"] = f"Source: {source_line}".strip()
+    sheet["A2"] = f"Call structure: {call_line}".strip()
+    sheet["A3"] = ""
+    sheet["A4"] = "Returned data"
+    row_index = 5
+    if isinstance(payload, (dict, list)):
+        sheet.cell(row=row_index, column=1, value=_safe_sheet_text(json.dumps(payload, ensure_ascii=False, indent=2)))
+    else:
+        sheet.cell(row=row_index, column=1, value=_safe_sheet_text(str(payload or "")))
+    sheet.column_dimensions["A"].width = 140
+    for row in sheet.iter_rows():
+        for cell in row:
+            cell.alignment = Alignment(wrap_text=False, vertical="top")
+
+
 def _run_has_exportable_support(state, run_loop_start_index: int) -> bool:
     current_run_history = state.loop_history[run_loop_start_index:]
     for entry in current_run_history:
@@ -816,81 +963,6 @@ def _run_has_exportable_support(state, run_loop_start_index: int) -> bool:
             if artifact_ids or created_ids:
                 return True
     return False
-
-
-def _add_excel_chart_to_sheet(sheet, chart_spec: Dict[str, Any], start_row: int) -> int:
-    series = chart_spec.get("series") if isinstance(chart_spec.get("series"), list) else []
-    if not series:
-        return start_row
-
-    x_values: List[str] = []
-    for entry in series:
-        if not isinstance(entry, dict):
-            continue
-        for point in entry.get("points") or []:
-            if not isinstance(point, dict):
-                continue
-            x = str(point.get("x") or "").strip()
-            if x and x not in x_values:
-                x_values.append(x)
-    if not x_values:
-        return start_row
-
-    support_col_start = 8  # H
-    support_row_start = 2
-    sheet.cell(row=support_row_start, column=support_col_start, value=chart_spec.get("xLabel") or "x")
-    for series_index, entry in enumerate(series, start=1):
-        sheet.cell(
-            row=support_row_start,
-            column=support_col_start + series_index,
-            value=str(entry.get("name") or f"Series {series_index}"),
-        )
-    for row_offset, x in enumerate(x_values, start=1):
-        sheet.cell(row=support_row_start + row_offset, column=support_col_start, value=x)
-        for series_index, entry in enumerate(series, start=1):
-            point_map = {
-                str(point.get("x") or "").strip(): point.get("y")
-                for point in (entry.get("points") or [])
-                if isinstance(point, dict)
-            }
-            sheet.cell(
-                row=support_row_start + row_offset,
-                column=support_col_start + series_index,
-                value=point_map.get(x),
-            )
-
-    chart = BarChart() if chart_spec.get("type") == "bar" else LineChart()
-    chart_title = str(chart_spec.get("title") or "").strip()
-    if chart_title:
-        chart.title = chart_title
-    y_label = str(chart_spec.get("yLabel") or "").strip()
-    if y_label:
-        chart.y_axis.title = y_label
-    x_label = str(chart_spec.get("xLabel") or "").strip()
-    if x_label:
-        chart.x_axis.title = x_label
-    chart.height = 10
-    chart.width = 18
-    data = Reference(
-        sheet,
-        min_col=support_col_start + 1,
-        max_col=support_col_start + len(series),
-        min_row=support_row_start,
-        max_row=support_row_start + len(x_values),
-    )
-    categories = Reference(
-        sheet,
-        min_col=support_col_start,
-        min_row=support_row_start + 1,
-        max_row=support_row_start + len(x_values),
-    )
-    chart.add_data(data, titles_from_data=True)
-    chart.set_categories(categories)
-    sheet.add_chart(chart, f"A{start_row}")
-
-    for col_index in range(support_col_start, support_col_start + len(series) + 1):
-        sheet.column_dimensions[chr(64 + col_index)].hidden = True
-    return start_row + 20
 
 
 def _build_answer_export(
@@ -948,21 +1020,17 @@ def _build_answer_export(
                     "artifact_id": ", ".join(created_ids[:4]),
                     "artifact_label": "Sandbox calculation",
                     "source": "",
-                    "detail": "Calculation method",
-                    "value": _safe_sheet_text(
-                        json.dumps(result_data.get("result"), ensure_ascii=False)
-                        if isinstance(result_data.get("result"), (dict, list))
-                        else str(result_data.get("result") or "")
-                    ),
+                    "detail": "Derived calculation",
+                    "value": "",
                     "method": _safe_sheet_text(
-                        str(tool_input.get("sandbox_request") or result_data.get("generated_code_preview") or "").strip()
+                        str(tool_input.get("sandbox_request") or "").strip()
                     ),
                 }
             )
 
     workbook = Workbook()
     sheet = workbook.active
-    sheet.title = "Analysis"
+    sheet.title = "Summary"
     source_lines: List[str] = []
     seen_source_lines: set[str] = set()
     for artifact_id in raw_artifact_ids + calc_artifact_ids:
@@ -974,55 +1042,48 @@ def _build_answer_export(
                 continue
             seen_source_lines.add(line)
             source_lines.append(line)
-    sheet.append(["Summary", "", "", "", "", ""])
-    sheet.append(["Question", user_message, "", "", "", ""])
-    sheet.append(["Generated", datetime.utcnow().strftime("%Y-%m-%d %H:%M:%SZ"), "", "", "", ""])
-    sheet.append(["Answer preview", _safe_sheet_text(_truncate(final_answer, 400)), "", "", "", ""])
-    sheet.append(["Artifacts used", ", ".join(raw_artifact_ids + calc_artifact_ids), "", "", "", ""])
+    sheet.append(["Summary"])
+    sheet.append(["Question", user_message])
+    sheet.append(["Generated", datetime.utcnow().strftime("%Y-%m-%d %H:%M:%SZ")])
     if source_lines:
-        sheet.append(["Sources", _safe_sheet_text(source_lines[0]), "", "", "", ""])
+        sheet.append(["Sources", _safe_sheet_text(source_lines[0])])
         for line in source_lines[1:12]:
-            sheet.append(["", _safe_sheet_text(line), "", "", "", ""])
+            sheet.append(["", _safe_sheet_text(line)])
     sheet.append([])
-    next_row = sheet.max_row + 1
-    if chart_spec:
-        next_row = _add_excel_chart_to_sheet(sheet, chart_spec, next_row)
-        while sheet.max_row < next_row - 1:
-            sheet.append([""])
-    sheet.append(["Raw data", "", "", "", "", ""])
-    sheet.append(["section", "artifact_id", "artifact_label", "source", "detail", "value"])
+    chart_headers, chart_rows = _chart_table(chart_spec or {})
+    if chart_headers and chart_rows:
+        sheet.append(["Presented data"])
+        _write_table(sheet, chart_headers, chart_rows)
+        sheet.append([])
 
-    for artifact_id in raw_artifact_ids:
-        record = artifact_map.get(artifact_id)
-        if not record:
-            continue
-        for row in _rows_from_artifact(record):
-            sheet.append([row["section"], row["artifact_id"], row["artifact_label"], row["source"], row["detail"], row["value"]])
+    calc_headers, calc_table_rows = _summary_calc_table(calc_rows)
+    if calc_table_rows:
+        sheet.append(["Calculations"])
+        _write_table(sheet, calc_headers, calc_table_rows)
 
-    sheet.append([])
-    sheet.append(["Calculations", "", "", "", "", ""])
-    sheet.append(["section", "artifact_id", "artifact_label", "source", "detail", "value / method"])
-    for row in calc_rows:
-        value = row["value"]
-        if row["method"]:
-            value = f"{value}\n\nMethod: {row['method']}".strip()
-        sheet.append([row["section"], row["artifact_id"], row["artifact_label"], row["source"], row["detail"], value])
-    for artifact_id in calc_artifact_ids:
-        record = artifact_map.get(artifact_id)
-        if not record:
-            continue
-        for row in _rows_from_artifact(record):
-            sheet.append([row["section"], row["artifact_id"], row["artifact_label"], row["source"], row["detail"], row["value"]])
-
-    widths = {"A": 16, "B": 18, "C": 28, "D": 32, "E": 24, "F": 110}
+    widths = {"A": 18, "B": 44, "C": 20, "D": 20, "E": 20, "F": 20}
     for col, width in widths.items():
         sheet.column_dimensions[col].width = width
     for row in sheet.iter_rows():
         for cell in row:
-            cell.alignment = Alignment(wrap_text=True, vertical="top")
-    sheet.freeze_panes = f"A{max(next_row + 1, 8)}"
+            cell.alignment = Alignment(wrap_text=False, vertical="top")
+
+    used_sheet_names = {"Summary"}
+    for artifact_id in raw_artifact_ids:
+        record = artifact_map.get(artifact_id)
+        if not record:
+            continue
+        raw_sheet = workbook.create_sheet(
+            title=_safe_sheet_name(
+                str(record.get("label") or record.get("artifact_id") or "Raw data"),
+                used_sheet_names,
+            )
+        )
+        _write_raw_artifact_sheet(raw_sheet, record)
+    _apply_export_theme(workbook)
 
     run_dir = _ensure_runtime_dirs(conversation_id)
+    download_filename = _safe_export_filename(user_message)
     path = run_dir / "artifacts" / f"answer_export_{len(state.artifacts) + 1:03d}.xlsx"
     workbook.save(path)
     source_references: List[Dict[str, Any]] = []
@@ -1036,9 +1097,10 @@ def _build_answer_export(
         path=path,
         kind="answer_export",
         label="Excel export",
-        summary=_truncate(f"One-sheet Excel export for '{user_message}'.", 300),
+        summary=_truncate(f"Summary workbook with clean tables and raw data sheets for '{user_message}'.", 300),
         source_references=source_references[:12],
     )
+    record["download_filename"] = download_filename
     state.latest_export_artifact_id = record["artifact_id"]
     return record["artifact_id"]
 
@@ -1964,6 +2026,13 @@ def _execute_macro_data_tool(
     artifact_payload = {
         "artifact_type": "macro_query_response",
         "query": query,
+        "request_context": {
+            "candidate_ids": list(candidate_ids),
+            "countries": list(countries),
+            "all_countries": all_countries,
+            "start_year": start_year,
+            "end_year": end_year,
+        },
         "response": payload,
         "source_references": sources,
     }

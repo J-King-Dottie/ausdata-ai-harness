@@ -357,10 +357,22 @@ async def get_latest_export(conversation_id: str):
     path = get_latest_export_artifact_path(state)
     if path is None:
         raise HTTPException(status_code=404, detail="No export available.")
+    download_filename = path.name
+    artifact_id = str(getattr(state, "latest_export_artifact_id", "") or "").strip()
+    if artifact_id:
+        for item in reversed(state.artifacts):
+            if not isinstance(item, dict):
+                continue
+            if str(item.get("artifact_id") or "").strip() != artifact_id:
+                continue
+            candidate = str(item.get("download_filename") or "").strip()
+            if candidate:
+                download_filename = candidate
+            break
     return FileResponse(
         path,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        filename=path.name,
+        filename=download_filename,
     )
 
 

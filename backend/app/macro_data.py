@@ -978,6 +978,7 @@ def _fetch_world_bank(query: str, concept: Dict[str, Any], provider_config: Dict
         "provider": WORLD_BANK_PROVIDER,
         "concept_id": concept["concept_id"],
         "concept_label": concept["label"],
+        "api_request_url": str(response.request.url),
         "series": series,
         "source_references": source_refs,
     }
@@ -1050,6 +1051,7 @@ def _fetch_imf(query: str, concept: Dict[str, Any], provider_config: Dict[str, A
         "provider": IMF_PROVIDER,
         "concept_id": concept["concept_id"],
         "concept_label": concept["label"],
+        "api_request_url": str(response.request.url),
         "series": series,
         "source_references": source_refs,
     }
@@ -1203,6 +1205,7 @@ def _fetch_oecd(query: str, concept: Dict[str, Any], provider_config: Dict[str, 
         "provider": OECD_PROVIDER,
         "concept_id": concept["concept_id"],
         "concept_label": concept["label"],
+        "api_request_url": str(response.request.url),
         "series": series,
         "source_references": source_refs,
     }
