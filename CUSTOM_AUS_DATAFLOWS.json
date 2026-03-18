@@ -1,0 +1,96 @@
+{
+  "lastUpdated": "2026-03-18T00:00:00Z",
+  "flows": [
+    {
+      "id": "AES_TABLE_O",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "Australian Energy Statistics Table O: electricity generation by fuel type",
+      "description": "DCCEEW Australian Energy Statistics workbook for electricity generation by fuel type. Includes historical annual series with Australia, state, financial year, calendar year, and industry/state breakdown sheets.",
+      "flowType": "dcceew_aes_xlsx",
+      "sourceType": "xlsx",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Department of Climate Change, Energy, the Environment and Water",
+      "sourcePageUrl": "https://www.energy.gov.au/publications/australian-energy-statistics-table-o-electricity-generation-fuel-type-2023-24-and-2024",
+      "sourceUrl": "https://www.energy.gov.au/sites/default/files/2025-06/Australian%20Energy%20Statistics%202025%20Table%20O.xlsx",
+      "curation": {
+        "ignoredSheets": [
+          "Title page",
+          "Method note",
+          "Index"
+        ],
+        "sheetGroups": [
+          {
+            "id": "national_financial_year",
+            "description": "Australia financial-year electricity generation by fuel type.",
+            "sheets": [
+              "AUS FY"
+            ]
+          },
+          {
+            "id": "state_financial_year",
+            "description": "State and territory financial-year electricity generation by fuel type.",
+            "sheets": [
+              "NSW FY",
+              "VIC FY",
+              "QLD FY",
+              "WA FY",
+              "SA FY",
+              "TAS FY",
+              "NT FY"
+            ]
+          },
+          {
+            "id": "state_summary_financial_year",
+            "description": "Single financial-year state comparison summary for 2023-24.",
+            "sheets": [
+              "State summary 2023-24"
+            ]
+          },
+          {
+            "id": "bioenergy_breakdown_financial_year",
+            "description": "Financial-year bioenergy breakdown detail.",
+            "sheets": [
+              "Bioenergy breakdown FY"
+            ]
+          },
+          {
+            "id": "industry_breakdown_financial_year",
+            "description": "Financial-year industry and industry-state electricity generation breakdowns.",
+            "sheets": [
+              "Industry breakdown FY",
+              "Industry and state FY"
+            ]
+          },
+          {
+            "id": "national_calendar_year",
+            "description": "Australia calendar-year electricity generation by fuel type.",
+            "sheets": [
+              "AUS CY"
+            ]
+          },
+          {
+            "id": "state_calendar_year",
+            "description": "State and territory calendar-year electricity generation by fuel type.",
+            "sheets": [
+              "NSW CY",
+              "VIC CY",
+              "QLD CY",
+              "WA CY",
+              "SA CY",
+              "TAS CY",
+              "NT CY"
+            ]
+          },
+          {
+            "id": "state_summary_calendar_year",
+            "description": "Single calendar-year state comparison summary for 2024.",
+            "sheets": [
+              "State summary 2024"
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

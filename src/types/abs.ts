@@ -4,6 +4,20 @@ export interface DataFlow {
     version: string;
     name: string;
     description: string;
+    flowType?: string;
+    sourceType?: string;
+    sourceUrl?: string;
+    sourcePageUrl?: string;
+    sourceOrganization?: string;
+    requiresMetadataBeforeRetrieval?: boolean;
+    curation?: {
+        ignoredSheets?: string[];
+        sheetGroups?: Array<{
+            id: string;
+            description: string;
+            sheets: string[];
+        }>;
+    };
     structure?: {
         id: string;
         version: string;

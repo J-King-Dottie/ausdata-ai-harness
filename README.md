@@ -1,60 +1,108 @@
 # Nisaba
 
-Nisaba is an AI economic analyst. Ask it a question about the Australian economy or global macro data and it will find the right data, run the numbers, and explain what it found.
+Nisaba is an AI data harness built to become the best expert system for Australian public data.
 
-MCP servers plugged into agentic frameworks like Claude Code or Codex are genuinely powerful, probably the most capable tools available right now. But they still require a level of technical knowhow that puts them out of reach for most people.
+Its purpose is to help people ask detailed questions about Australia, retrieve the right public data, run the numbers, and explain what the data actually says.
 
-Most people don't have an AI API key. Most don't know which MCP servers to use, or what an MCP server even is. Most can't write a sophisticated AI prompt. That's not a criticism — it's just the reality.
+Nisaba started with ABS at the core, and ABS remains central. But the project is no longer ABS-only. The direction now is broader: combine ABS with other useful public Australian data sources over time, so the harness becomes more nuanced, more detailed, and more useful than any single-source Australian data assistant.
 
-The misison for building Nisaba is to make the power of these tools more accessible to the average person. Log-in, ask a simple question, thats it.
+Global macro sources such as the OECD, World Bank, and IMF are included for comparison and context. They matter, but they are not the point. The point is depth on Australia.
 
-It's designed for detailed Australian analysis with global macro context layered in where useful. I am Aussie and have worked as an economic analyst for federal gov for the last 10 years, hense the foucus.
+## Why This Exists
 
-Under the hood, Nisaba answers economic questions by identifying the right dataset for the job, retrieving and inspecting the data, running calculations in a Python sandbox, and producing grounded answers with charts, tables, and source references.
+MCP servers plugged into agentic frameworks like Claude Code or Codex are genuinely powerful. If you are technical, willing to wire tools together, comfortable with API keys, and happy to prompt an agent directly, you can do very sophisticated work that way.
 
-The backend is open source — run it locally if you want. 
+Most people are not interested in doing that. Most people do not want to choose models, manage API keys, understand MCP, or hand-build a retrieval workflow just to answer an economic question.
 
-The main output is a hosted version on AWS, available on a pay-per-use basis, priced at the raw API costs plus a small margin to cover hosting. That's it.
+Nisaba is meant to fill that gap.
 
-The goal is accessibility. Nothing more.
+Log in. Ask a question. Get a grounded answer.
+
+That is the product goal.
+
+We will host a version of Nisaba for people who want that simplicity. That hosted version is not free: you pay per use. The pricing model is straightforward. We pass through the underlying AI cost and add a 10% margin to cover hosting and maintenance. This is just the practical cost of running a hosted webapp.
+
+If you do not want to pay, download the repo and run it locally with your own API.
+
+## Product Direction
+
+Nisaba is being built as an expert Australian data harness with:
+
+- deep ABS coverage
+- growing support for custom Australian public sources
+- global macro context where comparison is useful
+- transparent retrieval, analysis, and sourcing
+
+Over time, the project should expand to cover a broader and broader range of detailed Australian public data sources.
+
+The long-run ambition is simple:
+
+- make Nisaba the strongest integrated AI harness for Australian data in the world
+
+That means careful source integration, not vague claims of coverage.
+Each new source should be useful, grounded, and actually retrievable.
+
+## What It Does
+
+Under the hood, Nisaba:
+
+1. routes a question to the right retrieval path
+2. shortlists candidate datasets or indicators
+3. retrieves structured data from the selected source
+4. inspects and narrows the returned data
+5. runs calculations in a Python sandbox where needed
+6. returns grounded answers with charts, tables, and source references
+
+Nisaba currently has two high-level retrieval routes:
+
+- `aus`
+  - Australian domestic retrieval
+  - includes ABS API data and curated custom Australian public sources
+- `macro`
+  - global macro retrieval
+  - includes sources such as OECD, World Bank, and IMF
+
+## Open Source
+
+The backend is open source and can be run locally.
+
+This project is also deliberately open to contribution. If there is another Australian public dataset or source you want available in Nisaba, open an issue or submit a pull request. Useful, working source integrations are welcome.
+
+The standard is straightforward:
+
+- the integration should be real
+- the source should be public
+- the retrieval path should work
+
 
 ## Underlying Tooling
 
-This repo builds a public-facing harness on top of underlying MCP and retrieval work. Credit is due to:
+This repo builds on top of strong open-source retrieval work. Credit is due to:
 
 - [`mcp-server-abs`](https://github.com/seansoreilly/mcp-server-abs)
 - [`openecon-data`](https://github.com/hanlulong/openecon-data)
 
-Nisaba uses ABS retrieval built on top of `mcp-server-abs`, and its broader macro flow is inspired by the retrieval, catalog, and routing ideas pioneered in `openecon-data`.
-
-## Retrieval Model
-
-Nisaba currently has two high-level retrieval paths:
-
-- `abs`
-  - Australian Bureau of Statistics data
-  - shortlist, inspect metadata, retrieve, analyze
-- `macro`
-  - international macro data across sources like the OECD, World Bank, and IMF
-  - shortlist indicators, retrieve structured series, analyze in sandbox
+Nisaba uses ABS retrieval built on top of `mcp-server-abs`, and its broader macro flow is informed by the retrieval, catalog, and routing ideas developed in `openecon-data`.
 
 ## Stack
 
-- ABS retrieval path
-- macro retrieval path for OECD / World Bank / IMF
+- Australian domestic retrieval across ABS and custom Australian public sources
+- global macro retrieval for OECD / World Bank / IMF
 - web-search support for broader context when needed
-- Python sandbox for inspect, narrow, calculate, compare, and chart-prep
+- Python sandbox for inspect, narrow, calculate, compare, and chart preparation
 - React frontend
 - FastAPI backend
 
 Produced by [Dottie AI Studio](https://dottieaistudio.com.au/).
 
 ## Requirements
+
 - Python
 - Node.js + npm
 - `OPENAI_API_KEY` in `.env`
 
 Example `.env`:
+
 ```env
 OPENAI_API_KEY=your_key_here
 ```
@@ -67,23 +115,27 @@ OPENAI_API_KEY=your_key_here
 Run from the repo root in PowerShell:
 
 First run:
+
 ```powershell
 .\start-dev.ps1
 ```
 
 Later runs:
+
 ```powershell
 .\start-dev.ps1 -SkipInstall
 ```
 
 If you want backend auto-reload:
+
 ```powershell
 .\start-dev.ps1 -SkipInstall -Reload
 ```
 
 If the frontend fails with `'vite' is not recognized`, rebuild the frontend install and start dev again:
+
 ```powershell
 Remove-Item -Recurse -Force .\frontend\node_modules; npm install --prefix .\frontend; .\start-dev.ps1
 ```
 
-Built out of genuine curiosity. If you find it useful or have ideas, open an issue or get in touch.
+If you find it useful, want a new Australian source integrated, or want to improve the harness, open an issue or submit a pull request.

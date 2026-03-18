@@ -4,6 +4,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import logger from '../../utils/logger.js';
 import { ABSApiClient } from './ABSApiClient.js';
+import { DcceewAesService } from '../custom/DcceewAesService.js';
 import {
     DataFlow,
     DataFlowCache,
@@ -22,24 +23,35 @@ const execFileAsync = promisify(execFile);
 export class DataFlowService {
     private cache: DataFlowCache | null = null;
     private readonly cacheFilePath: string;
+    private readonly customCacheFilePath: string;
     private readonly refreshIntervalMs: number;
     private readonly apiClient: ABSApiClient;
+    private readonly dcceewAesService: DcceewAesService;
     private readonly ftsDbPath: string;
     private readonly ftsScriptPath: string;
+    private readonly legacyFtsDbPaths: string[];
 
     constructor(cacheFilePath: string, refreshIntervalHours: number = 24) {
         const resolvedCachePath = path.resolve(cacheFilePath);
         this.cacheFilePath = resolvedCachePath;
+        this.customCacheFilePath = path.join(path.dirname(resolvedCachePath), 'CUSTOM_AUS_DATAFLOWS.json');
         this.refreshIntervalMs = refreshIntervalHours * 60 * 60 * 1000;
         this.apiClient = new ABSApiClient();
-        this.ftsDbPath = path.join(path.dirname(resolvedCachePath), 'ABS_DATAFLOWS_FTS.sqlite3');
+        this.dcceewAesService = new DcceewAesService(path.dirname(resolvedCachePath));
+        this.ftsDbPath = path.join(path.dirname(resolvedCachePath), 'AUS_DOMESTIC_DATAFLOWS_FTS.sqlite3');
         this.ftsScriptPath = path.join(path.dirname(resolvedCachePath), 'scripts', 'abs_dataflows_fts.py');
+        this.legacyFtsDbPaths = [
+            path.join(path.dirname(resolvedCachePath), 'ABS_DATAFLOWS_FTS.sqlite3'),
+            path.join(path.dirname(resolvedCachePath), 'ABS_DATAFLOWS_FTS_v2.sqlite3')
+        ];
 
         logger.info('DataFlowService initialized', {
             cacheFilePath: this.cacheFilePath,
+            customCacheFilePath: this.customCacheFilePath,
             refreshIntervalHours,
             refreshIntervalMs: this.refreshIntervalMs,
             ftsDbPath: this.ftsDbPath,
+            legacyFtsDbPaths: this.legacyFtsDbPaths,
             ftsScriptPath: this.ftsScriptPath
         });
     }
@@ -53,11 +65,12 @@ export class DataFlowService {
             }
 
             if (this.cache && !forceRefresh) {
+                const mergedFlows = await this.mergeWithCustomFlows(this.cache.flows);
                 logger.debug('Returning saved dataflow snapshot without auto-refresh', {
-                    flowCount: this.cache.flows.length,
+                    flowCount: mergedFlows.length,
                     cacheAge: new Date().getTime() - new Date(this.cache.lastUpdated).getTime()
                 });
-                return this.cache.flows;
+                return mergedFlows;
             }
 
             if (forceRefresh || !this.cache) {
@@ -68,9 +81,9 @@ export class DataFlowService {
                     flows
                 };
                 await this.saveCache(this.cache);
-                return flows;
+                return this.mergeWithCustomFlows(flows);
             }
-            return this.cache?.flows ?? [];
+            return this.mergeWithCustomFlows(this.cache?.flows ?? []);
 
         } catch (error) {
             logger.error('Error getting data flows', { error });
@@ -80,6 +93,10 @@ export class DataFlowService {
 
     async getFlowData(flowId: string, dataKey: string = 'all', options?: DataQueryOptions) {
         logger.info('Getting flow data', { flowId, dataKey, options });
+        const flow = await this.resolveFlow(flowId, false);
+        if (this.dcceewAesService.supports(flow)) {
+            return this.dcceewAesService.query(flow, dataKey, options);
+        }
         return this.apiClient.getData(flowId, dataKey, options);
     }
 
@@ -143,6 +160,10 @@ export class DataFlowService {
 
         if (!selectedFlow) {
             throw new Error(`No matching version found for dataflow ${dataflowIdentifier}`);
+        }
+
+        if (this.dcceewAesService.supports(selectedFlow)) {
+            return this.dcceewAesService.getMetadata(selectedFlow);
         }
 
         const structureRef = selectedFlow.structure ?? {
@@ -216,6 +237,8 @@ export class DataFlowService {
         limit: number = 8,
         forceRefresh: boolean = false
     ): Promise<DataFlow[]> {
+        await this.cleanupLegacyFtsDatabases();
+
         if (forceRefresh) {
             await this.getDataFlows(true);
         }
@@ -230,6 +253,8 @@ export class DataFlowService {
             this.ftsScriptPath,
             '--json-cache',
             this.cacheFilePath,
+            '--custom-json-cache',
+            this.customCacheFilePath,
             '--db',
             this.ftsDbPath,
             '--query',
@@ -507,6 +532,49 @@ export class DataFlowService {
         return `${flow.agencyID},${flow.id},${flow.version}`;
     }
 
+    private async loadCustomFlows(): Promise<DataFlow[]> {
+        try {
+            const data = await fs.readFile(this.customCacheFilePath, 'utf8');
+            const parsed = JSON.parse(data) as Partial<DataFlowCache> & {
+                dataflows?: DataFlow[];
+            };
+            if (Array.isArray(parsed.flows)) {
+                return parsed.flows;
+            }
+            if (Array.isArray(parsed.dataflows)) {
+                return parsed.dataflows;
+            }
+            return [];
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+                return [];
+            }
+            logger.error('Error loading custom dataflows', { error, path: this.customCacheFilePath });
+            throw error;
+        }
+    }
+
+    private async mergeWithCustomFlows(absFlows: DataFlow[]): Promise<DataFlow[]> {
+        const customFlows = await this.loadCustomFlows();
+        return [...customFlows, ...absFlows];
+    }
+
+    private async cleanupLegacyFtsDatabases(): Promise<void> {
+        for (const legacyPath of this.legacyFtsDbPaths) {
+            if (legacyPath === this.ftsDbPath) {
+                continue;
+            }
+            try {
+                await fs.unlink(legacyPath);
+                logger.info('Removed legacy FTS database', { path: legacyPath });
+            } catch (error) {
+                if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+                    logger.warn('Failed to remove legacy FTS database', { path: legacyPath, error });
+                }
+            }
+        }
+    }
+
     private normalizeSearchText(value: string): string {
         return String(value || '')
             .toLowerCase()
@@ -553,7 +621,7 @@ export class DataFlowService {
 
         if (parts.length === 1) {
             return {
-                agencyId: 'ABS',
+                agencyId: '',
                 dataflowId: parts[0]
             };
         }

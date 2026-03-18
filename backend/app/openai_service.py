@@ -1290,14 +1290,14 @@ def _detect_provider_route(user_message: str) -> Dict[str, str]:
         return {
             "preferred_tool": "macro_data_tool",
             "provider_route": "macro",
-            "routing_reason": "The query mixes ABS-like wording with broader non-ABS macro comparison, so macro is the safer default hint.",
+            "routing_reason": "The query mixes Australian domestic wording with broader non-Australian macro comparison, so macro is the safer default hint.",
         }
 
     if has_abs_hint:
         return {
-            "preferred_tool": "abs_metadata_tool",
+            "preferred_tool": "aus_metadata_tool",
             "provider_route": "abs",
-            "routing_reason": "The query appears ABS-specific.",
+            "routing_reason": "The query appears focused on Australian domestic data.",
         }
 
     if has_macro_provider:
@@ -1322,9 +1322,9 @@ def _detect_provider_route(user_message: str) -> Dict[str, str]:
         }
 
     return {
-        "preferred_tool": "abs_metadata_tool",
+        "preferred_tool": "aus_metadata_tool",
         "provider_route": "abs",
-        "routing_reason": "Defaulting to ABS-first retrieval.",
+        "routing_reason": "Defaulting to Australian domestic data retrieval first.",
     }
 def _summarize_tool_input(tool_input: Dict[str, Any]) -> str:
     if not isinstance(tool_input, dict):
@@ -1387,6 +1387,9 @@ def _build_discover_payload(search_query: str, limit: int = 40) -> Dict[str, Any
             "dataset_id": str(item.get("id") or "").strip(),
             "title": str(item.get("name") or item.get("id") or "").strip(),
             "description": str(item.get("description") or "").strip(),
+            "flow_type": str(item.get("flowType") or "").strip(),
+            "source_type": str(item.get("sourceType") or "").strip(),
+            "requires_metadata_before_retrieval": bool(item.get("requiresMetadataBeforeRetrieval")),
         }
         if not entry["dataset_id"]:
             continue
@@ -1410,6 +1413,9 @@ def _build_discover_payload(search_query: str, limit: int = 40) -> Dict[str, Any
             "dataset_id": item["dataset_id"],
             "title": item["title"],
             "description": item["description"],
+            "flow_type": item.get("flow_type") or "",
+            "source_type": item.get("source_type") or "",
+            "requires_metadata_before_retrieval": bool(item.get("requires_metadata_before_retrieval")),
         }
         for item in candidates[:limit]
         if search_query == "" or int(item.get("score") or 0) > 0 or len(candidates) <= limit
@@ -2250,15 +2256,17 @@ def _execute_abs_data_tool(
 
     if action == "raw_retrieve":
         data_key = str(tool_input.get("dataKey") or "").strip()
-        if not data_key:
+        is_custom_domestic = dataset_id.startswith("CUSTOM_AUS,") or dataset_id == "AES_TABLE_O" or dataset_id.startswith("AES_")
+        if not data_key and not is_custom_domestic:
             raise RuntimeError("abs_data_tool action raw_retrieve requires dataKey")
-        _validate_anchor_wildcard_data_key(dataset_id, data_key)
-        anchor_token = _extract_anchor_token(data_key)
-        metadata_anchor_codes = _metadata_anchor_codes_for_dataset(state, dataset_id)
-        if metadata_anchor_codes and anchor_token and anchor_token not in metadata_anchor_codes:
-            raise RuntimeError(
-                f"Invalid ABS anchor code for {dataset_id}. The anchor token '{anchor_token}' does not appear in the metadata anchor_codes list for that dataset."
-            )
+        if data_key and not is_custom_domestic:
+            _validate_anchor_wildcard_data_key(dataset_id, data_key)
+            anchor_token = _extract_anchor_token(data_key)
+            metadata_anchor_codes = _metadata_anchor_codes_for_dataset(state, dataset_id)
+            if metadata_anchor_codes and anchor_token and anchor_token not in metadata_anchor_codes:
+                raise RuntimeError(
+                    f"Invalid ABS anchor code for {dataset_id}. The anchor token '{anchor_token}' does not appear in the metadata anchor_codes list for that dataset."
+                )
         run_dir = _ensure_runtime_dirs(conversation_id)
         start_period = str(tool_input.get("startPeriod") or "").strip() or None
         end_period = str(tool_input.get("endPeriod") or "").strip() or None
@@ -2359,7 +2367,7 @@ def _execute_abs_data_tool(
     raise RuntimeError(f"Unsupported abs_data_tool action: {action}")
 
 
-def _execute_abs_metadata_tool(
+def _execute_aus_metadata_tool(
     *,
     tool_input: Dict[str, Any],
     state,
@@ -2374,7 +2382,7 @@ def _execute_abs_metadata_tool(
     )
 
 
-def _execute_abs_raw_retrieve_tool(
+def _execute_aus_raw_retrieve_tool(
     *,
     tool_input: Dict[str, Any],
     state,
@@ -2940,8 +2948,8 @@ def _classify_tool_failure(step_id: str, error_text: str, tool_input: Dict[str, 
     clean_error = str(error_text or "").strip()
     tool_name = {
         "provider_route_tool": "provider_route_tool",
-        "abs_metadata_tool": "abs_metadata_tool",
-        "abs_raw_retrieve_tool": "abs_raw_retrieve_tool",
+        "aus_metadata_tool": "aus_metadata_tool",
+        "aus_raw_retrieve_tool": "aus_raw_retrieve_tool",
         "macro_data_tool": "macro_data_tool",
         "web_search_tool": "web_search_tool",
         "sandbox_tool": "sandbox_tool",
@@ -3534,12 +3542,12 @@ def generate_response(
                         "The next loop must choose the provider path first.\n"
                         "Return `provider_route_tool` with route set to `abs` or `macro`.\n"
                         "Also provide `searchQuery` as a standalone retrieval query that resolves any conversational carry-over.\n"
-                        "If the route is `abs`, that query will be used for the ABS FTS shortlist.\n"
+                        "If the route is `abs`, that query will be used for the Australian domestic FTS shortlist across ABS and curated custom sources.\n"
                         "If the route is `macro`, that query will be used as the default macro retrieval query in the next loop.\n"
                         "Only do this when the user actually needs new data retrieval.\n"
                         "Use `pre_run_provider_route` only as a heuristic hint.\n"
                         "If the user is making casual conversation, asking a capability question, or can be answered directly without retrieval, use `compose_final` instead.\n"
-                        "Do not call ABS retrieval, macro retrieval, sandbox, or plan before the provider route is selected."
+                        "Do not call domestic retrieval, macro retrieval, sandbox, or plan before the provider route is selected."
                     ),
                     result_data={
                         "kind": "provider_route_required",
@@ -3561,7 +3569,7 @@ def generate_response(
                 _truncate(step.get("summary") or "", 220),
                 _truncate(progress_note, 220),
             )
-            if step["id"] in {"provider_route_tool", "abs_metadata_tool", "abs_raw_retrieve_tool", "macro_data_tool", "web_search_tool", "sandbox_tool"}:
+            if step["id"] in {"provider_route_tool", "aus_metadata_tool", "aus_raw_retrieve_tool", "macro_data_tool", "web_search_tool", "sandbox_tool"}:
                 logger.info(
                     'Loop tool input cid=%s loop=%s step=%s input="%s"',
                     conversation_id,
@@ -3628,14 +3636,14 @@ def generate_response(
                         state=state,
                         conversation_id=conversation_id,
                     )
-                elif step["id"] == "abs_metadata_tool":
-                    tool_result = _execute_abs_metadata_tool(
+                elif step["id"] == "aus_metadata_tool":
+                    tool_result = _execute_aus_metadata_tool(
                         tool_input=model_output["tool_input"],
                         state=state,
                         conversation_id=conversation_id,
                     )
-                elif step["id"] == "abs_raw_retrieve_tool":
-                    tool_result = _execute_abs_raw_retrieve_tool(
+                elif step["id"] == "aus_raw_retrieve_tool":
+                    tool_result = _execute_aus_raw_retrieve_tool(
                         tool_input=model_output["tool_input"],
                         state=state,
                         conversation_id=conversation_id,

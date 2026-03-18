@@ -874,10 +874,11 @@ function ProductTitle() {
   return (
     <div className="product-title">
       <div className="product-title-text">
-        <div className="product-title-main">
+        <div className="product-title-row product-title-row-main">
           <h1>Nisaba</h1>
         </div>
-        <div className="product-subtitle-group">
+        <div className="product-title-row product-title-row-subtitle">
+          <div className="product-subtitle-group">
           <div className="info-action">
             <span className="subtitle-info-trigger">
               <span>an AI economic analyst</span>
@@ -897,19 +898,28 @@ function ProductTitle() {
                     mattered. Grain, livestock, labour, taxes.
                   </p>
                   <p>
-                    Your Nisaba does the same. Built specifically for Australian analysts,
-                    it draws from detailed ABS data as its core, with global context
-                    from the OECD, World Bank, and IMF.
+                    This system does the same. Designed for Australian analysts,
+                    it combines detailed ABS data and other public sources with
+                    global context from the OECD, World Bank, and IMF.
                   </p>
                   <p>
-                    Ask anything about the Australian economy and how it compares
-                    to the world, and Nisaba will find the numbers and tell you
-                    what they mean.
+                    Ask anything from granular Australian data to global economic
+                    comparisons. Nisaba will find the numbers and explain what
+                    they mean.
                   </p>
                   <p>
                     Produced by{" "}
                     <a href="https://dottieaistudio.com.au/" target="_blank" rel="noreferrer">
                       Dottie AI Studio
+                    </a>
+                    {" · "}
+                    open source{" "}
+                    <a
+                      href="https://github.com/J-King-Dottie/AusData-AI-Harness"
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      @AusData-AI-Harness
                     </a>
                   </p>
                   <p>
@@ -921,7 +931,7 @@ function ProductTitle() {
                     >
                       mcp-server-abs
                     </a>
-                    {" & "}
+                    {" · "}
                     <a
                       href="https://github.com/hanlulong/openecon-data"
                       target="_blank"
@@ -933,6 +943,7 @@ function ProductTitle() {
                 </div>
               </span>
             </span>
+          </div>
           </div>
         </div>
       </div>
@@ -966,6 +977,13 @@ function App() {
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const hydratedConversationRef = useRef("");
   const queuedSubmitRef = useRef(false);
+  const displayName =
+    String(
+      session?.user?.user_metadata?.display_name ||
+        session?.user?.user_metadata?.full_name ||
+        session?.user?.email ||
+        ""
+    ).trim() || "Signed in";
 
   const syncComposerHeight = () => {
     const element = composerRef.current;
@@ -973,7 +991,10 @@ function App() {
       return;
     }
     element.style.height = "0px";
-    element.style.height = `${element.scrollHeight}px`;
+    const maxHeight = Number.parseFloat(window.getComputedStyle(element).maxHeight || "0");
+    const nextHeight = element.scrollHeight;
+    element.style.height = `${nextHeight}px`;
+    element.style.overflowY = maxHeight > 0 && nextHeight > maxHeight ? "auto" : "hidden";
   };
 
   useEffect(() => {
@@ -1509,6 +1530,18 @@ function App() {
     }
   };
 
+  const handleComposerBeforeInput = (event: FormEvent<HTMLTextAreaElement>) => {
+    const nativeEvent = event.nativeEvent as InputEvent | undefined;
+    if (nativeEvent?.isComposing) {
+      return;
+    }
+    if (nativeEvent?.inputType === "insertLineBreak") {
+      event.preventDefault();
+      const form = event.currentTarget.form;
+      form?.requestSubmit();
+    }
+  };
+
   const lastCompletedAssistantIndex = messages.reduce((lastIndex, message, index) => {
     if (message.sender === "assistant" && message.content.trim()) {
       return index;
@@ -1568,6 +1601,9 @@ function App() {
           <ProductTitle />
         </div>
         <div className="header-controls">
+          <span className="header-user-label" title={displayName}>
+            {displayName}
+          </span>
           <div className="header-action">
             <button
               type="button"
@@ -1610,10 +1646,9 @@ function App() {
             <div className="empty-state">
               <div className="empty-state-note">
                 <div className="empty-state-note-group">
-                  <p>Nisaba has access to ABS data plus global sources like the OECD, World Bank, and IMF.</p>
-                  <p>This system is designed for detailed Australian analysis with macro global comparisons.</p>
-                  <p>Targeted questions work well. Complex, layered ones can still cause problems.</p>
-                  <p>Break complex questions down and work through them step by step.</p>
+                  <p>Nisaba combines ABS data and other Australian sources with global data from the OECD, World Bank, and&nbsp;IMF.</p>
+                  <p>Designed for detailed Australian analysis and global macro comparison.</p>
+                  <p>Performs best on targeted questions. Break complex queries down.</p>
                 </div>
               </div>
               <div className="empty-state-prompts">
@@ -1725,7 +1760,9 @@ function App() {
               value={input}
               onChange={(event) => setInput(event.target.value)}
               onKeyDown={handleComposerKeyDown}
-              placeholder="Ask an ABS economic question..."
+              onBeforeInput={handleComposerBeforeInput}
+              placeholder="Ask Nisaba your economic questions..."
+              enterKeyHint="send"
               rows={1}
             />
             <button

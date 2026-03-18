@@ -1,6 +1,7 @@
 import logger from '../../utils/logger.js';
 import { ABSApiClient } from './ABSApiClient.js';
 import { DataFlowService } from './DataFlowService.js';
+import { DcceewAesService } from '../custom/DcceewAesService.js';
 import {
     DataQueryOptions,
     DataFlow,
@@ -26,9 +27,11 @@ interface QueryContext {
 
 export class DatasetResolver {
     private readonly apiClient: ABSApiClient;
+    private readonly dcceewAesService: DcceewAesService;
 
     constructor(private readonly dataFlowService: DataFlowService) {
         this.apiClient = new ABSApiClient();
+        this.dcceewAesService = new DcceewAesService(process.cwd());
     }
 
     async resolve(options: ResolveDatasetOptions): Promise<ResolvedDataset> {
@@ -54,6 +57,16 @@ export class DatasetResolver {
 
         const normalizedId = datasetId;
         const flow = await this.dataFlowService.resolveFlow(normalizedId, forceRefresh ?? false);
+        if (this.dcceewAesService.supports(flow)) {
+            return this.dcceewAesService.resolve(flow, {
+                dataKey,
+                startPeriod,
+                endPeriod,
+                detail: resolvedDetail,
+                dimensionAtObservation,
+                format: targetFormat,
+            });
+        }
 
         const dataflowIdentifier = DataFlowService.formatDataflowIdentifier(flow);
         const queryDataKey = dataKey && dataKey.trim().length > 0 ? dataKey.trim() : 'all';

@@ -1,393 +1,136 @@
-# ABS MCP Working Notes
+# AusData AI Harness Working Notes
 
 ## Purpose
 
-This repo now uses a deliberately narrow curated approach.
+This repo builds Nisaba: an agentic Australian data harness.
 
-The goal is not to let the harness invent arbitrary ABS API calls.
-The goal is to give it a short list of known working query templates.
+The core goal is not generic economic QA.
+The goal is deep, grounded, detailed retrieval over Australian public data, with global macro sources available mainly for context and comparison.
 
-## Current curated model
+## Current retrieval model
 
-There are two source-of-truth files:
+The harness has two top-level retrieval routes:
 
-- `/mnt/c/Users/jorda/OneDrive/Documents/Dottie/abs-mcp/CURATED_ABS_CATALOG.txt`
-- `/mnt/c/Users/jorda/OneDrive/Documents/Dottie/abs-mcp/CURATED_ABS_STRUCTURES.txt`
+- `abs`
+  - Australian domestic retrieval
+  - includes both ABS API datasets and curated custom Australian sources
+- `macro`
+  - global macro retrieval
+  - includes sources such as OECD, World Bank, and IMF
 
-### Catalog file
+Important:
 
-The catalog file is intentionally simple.
+- `abs` no longer means ABS-only
+- it is the broader Australian domestic route
+- custom Australian sources should fit into the same domestic shortlist and retrieval flow where possible
 
-Each entry contains:
+## Australian domestic architecture
 
-- `dataset_id`
-- `title`
-- `description`
+Australian domestic retrieval currently works like this:
 
-This is what the harness uses to decide whether a curated dataset is relevant.
+1. the model routes to `abs`
+2. the backend prepares a domestic shortlist
+3. the shortlist searches across:
+   - `ABS_DATAFLOWS_FULL.json`
+   - `CUSTOM_AUS_DATAFLOWS.json`
+4. SQLite FTS is used over the merged domestic catalog
+5. retrieval then branches by source type behind the same domestic tool contract
 
-### Structures file
+Current merged FTS database:
 
-The structures file is also intentionally simple.
+- `/mnt/c/Users/jorda/OneDrive/Documents/Dottie/abs-mcp/AUS_DOMESTIC_DATAFLOWS_FTS.sqlite3`
 
-Each dataset entry contains:
+Current domestic source files:
 
-- `dataset_id`
-- `title`
-- `description`
-- `query_templates`
+- `/mnt/c/Users/jorda/OneDrive/Documents/Dottie/abs-mcp/ABS_DATAFLOWS_FULL.json`
+- `/mnt/c/Users/jorda/OneDrive/Documents/Dottie/abs-mcp/CUSTOM_AUS_DATAFLOWS.json`
 
-Each `query_template` contains only:
+## Custom Australian data
 
-- `template_id`
-- `description`
-- `api_call`
+Custom Australian sources should not bypass the domestic route.
 
-For measure-list templates such as the Labour Accounts wildcard template, each measure description is also part of the curated layer.
+Preferred pattern:
 
-Those measure descriptions should say what is literally available in the returned data for that measure, not what the metadata or codelists imply might be available.
+- shortlist custom sources alongside ABS
+- keep one domestic search experience
+- branch internally at retrieval time using source-specific adapters
 
-Example:
+Current example:
 
-```json
-{
-  "template_id": "measure_wildcard",
-  "description": "Choose a Labour Accounts measure and use the wildcard API call for that measure. Measure descriptions must say what the returned data literally includes.",
-  "api_call": "/rest/data/LABOUR_ACCT_Q/{MEASURE}....?detail=full&dimensionAtObservation=TIME_PERIOD"
-}
-```
+- DCCEEW Australian Energy Statistics Table O workbook
+- custom flow type: `dcceew_aes_xlsx`
+- retrieved live from source
+- not stored locally as raw workbook data
 
-## Why this changed
+For custom sources:
 
-The earlier broad approach exposed too much API surface:
+- use the same broad dataflow layout as domestic catalog entries
+- include source-specific fields such as `flowType`, `sourceType`, `sourceUrl`, and `requiresMetadataBeforeRetrieval`
+- prefer runtime merging over physically mixing the ABS and custom source files
 
-- the model had to infer the right dimensions
-- it had to infer the right code combinations
-- it often built plausible-looking requests that failed
+## Retrieval guidance
 
-The curated template approach is more reliable because:
+For ABS-backed domestic datasets:
 
-- every template is based on a real working ABS call
-- the harness starts from known good patterns
-- new capability is added by adding validated templates, not by widening model freedom
+- metadata-first retrieval is still the default
+- metadata determines the valid anchor and wildcard shape
+- retrieval should follow the observed dataset structure, not guessed keys
+
+For custom-backed domestic datasets:
+
+- a custom flow may declare `requiresMetadataBeforeRetrieval: false`
+- in that case retrieval may run directly from the selected dataset id
+- the adapter should inspect, slice, and normalize the source internally
+
+General rule:
+
+- use metadata when the source needs it
+- do not force artificial metadata steps where the source does not need them
+
+## Adding new Australian sources
+
+Preferred process:
+
+1. identify a real public Australian source worth supporting
+2. add one clean domestic catalog entry to `CUSTOM_AUS_DATAFLOWS.json`
+3. define the correct `flowType` and source fields
+4. build a retrieval adapter only as far as needed for that source
+5. verify that shortlist, retrieval, and downstream analysis all work end to end
+
+Do not add speculative integrations.
+Do not add local raw data mirrors unless there is a strong operational reason.
+Prefer live retrieval from the public source when practical.
 
 ## Shortlist architecture overview
 
-At a high level, both ABS and macro use a local catalog derived from source metadata plus an AI-generated shortlist query.
+At a high level, both domestic and macro retrieval use a local catalog plus AI-generated shortlist queries.
 
-- ABS shortlist:
-  - runs SQLite FTS over the cached ABS dataflow catalog
+- Australian domestic shortlist:
+  - runs SQLite FTS over the merged domestic catalog
   - primarily matches `dataset_id`, `name`, and `description`
-  - then applies light post-FTS reranking, including downranking Census datasets unless the query explicitly asks for Census
+  - includes both ABS and curated custom Australian entries
 
 - Macro shortlist:
   - runs SQLite FTS over `MACRO_CATALOG_FULL.json`
-  - the macro catalog is generated from provider metadata from sources such as World Bank, IMF, and OECD
-  - FTS matches fields including `provider_name`, `concept_label`, `indicator_label`, `description`, and `search_text`
-  - then applies a heavier reranking layer to improve semantic relevance and provider matching
+  - matches fields including `provider_name`, `concept_label`, `indicator_label`, `description`, and `search_text`
+  - uses heavier reranking to improve provider and indicator relevance
 
 The practical pattern is:
 
 1. the model writes a shortlist query
 2. local catalog FTS produces candidates
-3. reranking improves the ordering before retrieval continues
+3. reranking improves ordering before retrieval continues
 
-## How to add a new curated dataset or template
+## Reliability standard
 
-Use this workflow:
+The repo should optimize for reliability, not theoretical coverage.
 
-1. Pick a real user question.
-2. Find a live ABS API call that actually works for that use case.
-3. Test that call directly against ABS.
-4. Add or update the catalog entry.
-5. Add a matching structure entry with one or more `query_templates`.
+That means:
 
-Do not add speculative templates.
-Only add templates that have been tested.
-Do not add a template just because the API call returns data. Verify that the returned data actually contains the dimension/value combination the template claims to support.
-
-If you are updating an existing wildcard-style template, also update the relevant descriptions so they reflect the verified returned data.
-
-## How to test a live ABS API call
-
-Use `curl`.
-
-Example:
-
-```bash
-curl -sS "https://data.api.abs.gov.au/rest/data/LABOUR_ACCT_Q/M9...10+20+30.Q?detail=full&dimensionAtObservation=TIME_PERIOD"
-```
-
-If the call returns valid ABS data, it is a candidate template.
-But it is only a valid curated template after you verify the returned content matches the intended use case.
-
-If the call fails, do not add it to the curated file.
-
-## Mandatory verification before writing a template
-
-Always verify both:
-
-1. The call succeeds.
-2. The returned data actually contains the thing the template claims.
-
-Examples:
-
-- If a template says "jobs by state and industry", verify that the response contains multiple state codes, not just `AUS`.
-- If a template says "manufacturing jobs", verify that the response actually contains the manufacturing code.
-- If a template says "latest quarter by state", verify that state-level rows are present in the returned data.
-
-If the response only partially matches the claim, rename or narrow the template before adding it.
-
-## Mandatory verification for wildcard measure templates
-
-For templates that fix a measure and leave the remaining dimensions open with wildcards, do not stop at confirming that the API call works.
-
-You must inspect what the wildcard retrieval actually returns for each measure and record that in the description.
-
-Required process:
-
-1. Run the live wildcard retrieval for the measure.
-2. Inspect the returned series keys or MCP availability output.
-3. Identify which dimensions actually vary in published data and which are fixed.
-4. Check whether important dimension combinations are constrained, even when the broad dimension appears available.
-5. Update the description to reflect the high-level observed availability only.
-
-At minimum, check and describe:
-
-- geography actually returned, for example `AUS` only vs state codes
-- whether industry detail is `TOTAL` only, sections only, or includes detailed subdivision codes
-- which adjustment types are actually present
-- whether the data is quarterly, monthly, or another frequency
-- whether the retrieval is original-only, seasonally adjusted/trend-only, or mixed
-- whether broad availability hides narrower combination limits, for example state data existing only for totals or only for some sector variants
-
-Do not describe dimensions as available just because they exist in metadata or codelists.
-If metadata suggests broader coverage but the published series are narrower, say that explicitly in the dataset or measure description.
-Do not try to encode the full combination map into the curated description.
-Combination awareness belongs primarily to runtime inspection of the returned wildcard data.
-Only mention a combination limit in the curated description when it is a major high-level caveat needed to avoid obvious misuse.
-Do not write descriptions as a narrative of the validation sample you happened to test.
-Do not use wording like `validated starter slice`, `starter curated measure`, `the validated slice uses`, or similar process language inside curated descriptions.
-Descriptions should state observed availability directly, for example `varies by age group and educational attendance status`, not `the validated slice focused on age 15-24`.
-Only mention narrower limits when they are real observed limits of the published data, not just the subset used for verification.
-Do not turn a small wildcard inspection sample such as `firstNObservations=5` into a narrow availability claim unless that narrower limit has been confirmed more fully.
-Use small wildcard samples to confirm broad capability and obvious major caveats, not to over-specify exact measure-level combination limits in the curated text.
-When in doubt, keep the curated description broader and let runtime inspection determine the exact published combinations before narrowing or calculation.
-
-## Mandatory backend compatibility check for new curated schemas
-
-When adding a new curated dataset or a new curated template shape, do not assume the backend can already execute it.
-
-You must verify that the backend retrieval path supports the template schema you are introducing.
-
-Examples:
-
-- if the backend currently supports `measureId` substitution, and the new template uses `dataItemId`, add and verify `dataItemId` support before considering the curation complete
-- if the new dataset uses a different placeholder pattern, dimension order, or retrieval metadata shape, confirm the backend materializes the API call correctly
-- if the new schema needs new tool input fields, artifact fields, or parsing logic, implement those changes as part of the curation task
-
-Minimum required check:
-
-1. verify the curated `api_call` itself works directly against ABS
-2. verify the backend can materialize and execute that curated template shape
-3. only then treat the dataset as successfully curated
-
-Do not stop after updating `CURATED_ABS_CATALOG.txt` and `CURATED_ABS_STRUCTURES.txt` if the backend cannot yet use the new schema.
-
-Example of the required standard:
-
-- bad: "jobs by geography and industry"
-- good: "Wildcard retrieval returns quarterly Australia-only series. Original data includes TOTAL, sections A-S, and detailed subdivision codes. No state breakdowns are returned in the published series."
-
-## Current first curated entry
-
-Dataset:
-
-- `LABOUR_ACCT_Q`
-
-Template:
-
-- `measure_wildcard`
-
-Known working API call:
-
-```text
-/rest/data/LABOUR_ACCT_Q/{MEASURE}....?detail=full&dimensionAtObservation=TIME_PERIOD
-```
-
-Meaning:
-
-- `{MEASURE}` = selected Labour Accounts measure
-- wildcard positions return whatever published combinations actually exist for geography, industry, adjustment type and frequency
-- `Q` = quarterly
-
-Important:
-
-- do not assume the wildcard geometry means state data exists
-- for `LABOUR_ACCT_Q`, metadata may advertise geography capability beyond what the published series actually return
-- always verify observed availability from the returned data before writing the curated description
-
-## Rule for future additions
-
-Keep the curated layer small.
-
-Preferred process:
-
-1. one dataset
-2. one working template
-3. test it
-4. only then add the next template
-
-This repo should optimize for reliability, not exhaustiveness.
-
-## Condensed curation workflow
-
-When curating a new ABS dataset, use this sequence:
-
-1. Identify the candidate dataset with catalog, metadata, or approved raw ABS discovery.
-2. Inspect the live dimension structure and decide whether the dataset is best anchored on:
-   - `measure_id`, or
-   - `data_item_id`
-3. Choose the anchor that matches how a user naturally asks for the concept.
-   - Use `measure_id` when the measure itself is the primary concept.
-   - Use `data_item_id` when the user is really asking for an economic concept and `MEASURE` is mostly the representation form.
-4. Record a simple dataset-level `data_shape`:
-   - `time_series`
-   - `panel`
-   - `matrix`
-5. Build a wildcard template that fixes the anchor and leaves the remaining key positions open.
-6. Run the live wildcard retrieval for each anchored item.
-7. Inspect what the published data literally returns.
-8. Inspect whether important dimension combinations are narrower than the broad wildcard result.
-9. Write the catalog and structure descriptions from observed availability, not from metadata alone, but keep them high level rather than enumerating detailed combination rules.
-10. Verify the backend can actually execute that template shape.
-11. Only then treat the dataset as curated.
-
-## How to choose the anchor
-
-Use this rule:
-
-- If the user would normally ask for the thing by name, prefer `data_item_id`.
-- If the user would normally ask for the measure code or the measure is the natural concept, prefer `measure_id`.
-
-Examples:
-
-- `LABOUR_ACCT_Q`: measure-based
-- `ANA_AGG`: data-item-based
-- `ANA_SFD`: data-item-based
-- `ANA_IND_GVA`: data-item-based
-- `ANA_EXP`: data-item-based
-- `ANA_INC`: data-item-based
-
-## How to classify data shape
-
-Use:
-
-- `time_series`: mainly one concept over time
-- `panel`: multiple categories over time, for example industries, states, or sectors over time
-- `matrix`: cross-tab or matrix-style data where rows and columns are both analytical dimensions
-
-This field should help the harness reason about:
-
-- whether the result is naturally a single trend
-- whether it is a grouped comparison over time
-- whether it is a table or matrix rather than a chart-first dataset
-
-## What descriptions must say
-
-Descriptions should help the harness choose the right dataset and plan valid retrieval at a high level before runtime inspection.
-
-At minimum, descriptions should say what is literally available for the anchored item:
-
-- geography actually returned
-- frequency actually returned
-- industry or other category level actually returned
-- sector coverage actually returned
-- adjustment types actually returned
-- measure forms actually returned, for example current prices, chain volume, percentage changes, contributions
-- major high-level caveats that materially affect dataset choice or likely comparability
-
-Descriptions should be written to support questions like:
-
-- can this dataset be compared to another one?
-- at what common level can they be aligned?
-- is the item TOTAL only, divisions only, subdivisions, states, or something else?
-
-Descriptions should stay compact.
-Do not try to list every returned series key or every code combination.
-Do not try to encode the full combination logic in the curated files.
-Instead, state the broad observed availability first, then add one short caveat sentence only when a major high-level limit matters.
-Do not mix curation-process commentary into the final description text.
-Do not let a lightweight validation sample make the description more specific than the evidence supports.
-
-Runtime rule:
-- The curated files are for high-level capability guidance.
-- The harness should learn actual combination availability at runtime by inspecting returned wildcard rows or series keys before narrowing and calculation.
-- Do not rely on the curated descriptions alone for cross-combination assumptions.
-
-Preferred pattern:
-
-- one sentence on the broad observed availability
-- one sentence on the most important high-level caveat
-- one sentence on frequency or adjustment availability if needed
-
-Example:
-
-- "State-level data exists. Sector variants exist, but not all sector variants are available by state. Quarterly only."
-
-## Planning rule for derived analysis
-
-For ratios, rankings, decompositions, per-worker metrics, or other derived analysis:
-
-1. work backwards from the target output
-2. identify the exact numerator and denominator or components
-3. inspect structure and item descriptions first
-4. choose the lowest common compatible level across datasets
-5. only then retrieve
-
-Do not rely on sandbox to rescue a bad retrieval plan.
-If compatible levels are still unclear after structure inspection, stop and ask the user one short clarification question.
-
-## Recommended future autonomous curation pattern
-
-The long-term goal can be:
-
-- prefer the human-approved curated base first
-- if the needed dataset is missing, ask the user for approval
-- then let the agent perform raw ABS discovery and build a new wildcard-based curated entry
-- then use that new entry to answer the question
-
-Recommended safety structure:
-
-- human-approved base:
-  - `/mnt/c/Users/jorda/OneDrive/Documents/Dottie/abs-mcp/CURATED_ABS_CATALOG.txt`
-  - `/mnt/c/Users/jorda/OneDrive/Documents/Dottie/abs-mcp/CURATED_ABS_STRUCTURES.txt`
-- AI-created overlay:
-  - `/mnt/c/Users/jorda/OneDrive/Documents/Dottie/abs-mcp/CURATED_ABS_CATALOG_AI.txt`
-  - `/mnt/c/Users/jorda/OneDrive/Documents/Dottie/abs-mcp/CURATED_ABS_STRUCTURES_AI.txt`
-
-Recommended behavior:
-
-1. do not let autonomous curation write directly into the human-approved base files
-2. let autonomous curation write into the `_AI` overlay files
-3. at runtime, merge base + overlay so the harness can use both
-4. let a human later review and promote good overlay entries into the base files
-
-This gives Seshat room to extend coverage without silently mutating the approved curated base.
-
-## Rules for autonomous curation
-
-If the harness is ever allowed to curate missing datasets itself:
-
-- it must still ask for approval before raw ABS discovery
-- it must still test the live API call
-- it must still verify literal returned availability item by item
-- it must still verify backend compatibility for the new template shape
-- it must still write cautious descriptions based on observed data only
-- it must prefer adding one good working template over inventing a broad schema
-
-Do not let autonomous curation widen the API surface casually.
-It should follow the same reliability-first rules as manual curation.
+- prefer one working source integration over a broad speculative abstraction
+- verify live retrieval against the real public source
+- verify the backend can actually execute the retrieval path you are adding
+- keep source descriptions grounded in what is actually retrievable
 
 ## Product identity notes
 
@@ -395,4 +138,4 @@ There is a repo-level narrative identity file at:
 
 - `/mnt/c/Users/jorda/OneDrive/Documents/Dottie/abs-mcp/SOUL.md`
 
-Use it as the source of truth for the product's naming, mythology, tone, and personality.
+Use it as the source of truth for naming, mythology, tone, and personality.

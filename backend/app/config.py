@@ -77,10 +77,6 @@ def get_settings() -> Settings:
     if python_binary:
         overrides["python_binary"] = python_binary
 
-    max_loops = os.getenv("MAX_LOOPS")
-    if max_loops:
-        overrides["max_loops"] = int(max_loops)
-
     timeout = os.getenv("OPENAI_TIMEOUT_SECONDS")
     if timeout:
         overrides["openai_timeout_seconds"] = int(timeout)
