@@ -815,7 +815,6 @@ body {
 }
 
 .assistant-export-link {
-  margin-top: 0.5rem;
   display: inline-flex;
   align-items: center;
 }
@@ -836,7 +835,6 @@ body {
 }
 
 .assistant-export-pending {
-  margin-top: 0.5rem;
   display: inline-flex;
   align-items: center;
 }
