@@ -3894,43 +3894,6 @@ def generate_response(
             progress_note = parsed["progress_note"]
             model_output = parsed["model_output"]
 
-            if not selected_provider_route and step["id"] not in {"provider_route_tool", "compose_final", "propose_plan"}:
-                logger.info(
-                    "Loop route gate cid=%s loop=%s rejected_step=%s reason=provider_route_required_first",
-                    conversation_id,
-                    loop_index,
-                    step.get("id"),
-                )
-                _record_loop_feedback(
-                    state,
-                    step={
-                        "id": "provider_route_required",
-                        "summary": "Choose the provider path before any retrieval step",
-                    },
-                    progress_note="Choosing the provider path first.",
-                    result_summary=(
-                        "The next loop must choose the provider path first.\n"
-                        "Return `provider_route_tool` with route set to `aus` or `macro`.\n"
-                        "Also provide `searchQuery` as a standalone retrieval query that resolves any conversational carry-over.\n"
-                        "If the route is `aus`, that query will be used for the Australian domestic FTS shortlist across ABS and curated custom sources.\n"
-                        "If the route is `macro`, that query will be used as the default macro retrieval query in the next loop.\n"
-                        "Only do this when the user actually needs new data retrieval.\n"
-                        "Use `pre_run_provider_route` only as a heuristic hint.\n"
-                        "If the user is making casual conversation, asking a capability question, or can be answered directly without retrieval, use `compose_final` instead.\n"
-                        "Do not call domestic retrieval, macro retrieval, sandbox, or plan before the provider route is selected."
-                    ),
-                    result_data={
-                        "kind": "provider_route_required",
-                        "correction_instructions": (
-                            "If retrieval is needed, return provider_route_tool first and choose exactly one route: aus or macro. "
-                            "Always include searchQuery as the standalone retrieval query. "
-                            "If retrieval is not needed, return compose_final."
-                        ),
-                    },
-                )
-                store.save(state)
-                continue
-
             logger.info(
                 'Loop decision cid=%s loop=%s step=%s summary="%s" progress="%s"',
                 conversation_id,
