@@ -8,6 +8,8 @@ import logger from '../../utils/logger.js';
 import { DataFlow, DataQueryOptions, DataStructureMetadata, ResolvedDataset } from '../../types/abs.js';
 
 const execFileAsync = promisify(execFile);
+const DOWNLOAD_TIMEOUT_MS = 45000;
+const PARSE_TIMEOUT_MS = 120000;
 
 interface CustomSheetGroup {
     id: string;
@@ -75,6 +77,7 @@ export class DcceewAesService {
         ], {
             cwd: path.dirname(this.parserScriptPath),
             maxBuffer: 4 * 1024 * 1024,
+            timeout: PARSE_TIMEOUT_MS,
         });
 
         return JSON.parse(stdout) as DataStructureMetadata;
@@ -110,6 +113,7 @@ export class DcceewAesService {
         ], {
             cwd: path.dirname(this.parserScriptPath),
             maxBuffer: 16 * 1024 * 1024,
+            timeout: PARSE_TIMEOUT_MS,
         });
 
         return JSON.parse(stdout) as ResolvedDataset;
@@ -124,15 +128,33 @@ export class DcceewAesService {
             os.tmpdir(),
             `${flow.id.toLowerCase()}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}.xlsx`,
         );
-        await execFileAsync('curl', [
-            '-sSL',
-            flow.sourceUrl,
-            '-o',
-            tmpPath,
-        ], {
-            cwd: path.dirname(this.parserScriptPath),
-            maxBuffer: 1024 * 1024,
+        logger.info('Starting DCCEEW AES workbook download', {
+            datasetId: flow.id,
+            sourceUrl: flow.sourceUrl,
         });
+        try {
+            await execFileAsync('curl', [
+                '-sSL',
+                '--max-time',
+                String(Math.ceil(DOWNLOAD_TIMEOUT_MS / 1000)),
+                flow.sourceUrl,
+                '-o',
+                tmpPath,
+            ], {
+                cwd: path.dirname(this.parserScriptPath),
+                maxBuffer: 1024 * 1024,
+                timeout: DOWNLOAD_TIMEOUT_MS + 5000,
+            });
+        } catch (error) {
+            logger.error('DCCEEW AES workbook download failed', {
+                datasetId: flow.id,
+                sourceUrl: flow.sourceUrl,
+                error,
+            });
+            throw new Error(
+                `Timed out downloading live DCCEEW workbook for ${flow.id} from ${flow.sourceUrl}.`,
+            );
+        }
         logger.info('Downloaded DCCEEW AES workbook', {
             datasetId: flow.id,
             sourceUrl: flow.sourceUrl,

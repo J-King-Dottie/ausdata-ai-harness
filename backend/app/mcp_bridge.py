@@ -42,6 +42,8 @@ SAFE_ENV_KEYS = {
     "WINDIR",
 }
 
+BRIDGE_COMMAND_TIMEOUT_SECONDS = 120
+
 
 class MCPBridgeError(RuntimeError):
     """Raised when the MCP bridge script fails."""
@@ -89,7 +91,26 @@ def _run_bridge(command: str, payload: Optional[Dict[str, Any]] = None) -> Any:
             capture_output=True,
             text=True,
             env=env,
+            timeout=BRIDGE_COMMAND_TIMEOUT_SECONDS,
         )
+    except subprocess.TimeoutExpired as exc:  # pragma: no cover - subprocess timeout
+        stdout = exc.stdout or ""
+        stderr = exc.stderr or ""
+        logger.error(
+            "Bridge command timeout command=%s payload=%s timeout_s=%s stdout=%r stderr=%r",
+            command,
+            json.dumps(payload or {}, ensure_ascii=True)[:1000],
+            BRIDGE_COMMAND_TIMEOUT_SECONDS,
+            str(stdout)[:1000],
+            str(stderr)[:1000],
+        )
+        raise MCPBridgeError(
+            f"MCP bridge timed out for command '{command}' after {BRIDGE_COMMAND_TIMEOUT_SECONDS} seconds.\n"
+            f"STDOUT (first 1000 chars): {str(stdout)[:1000]}\n"
+            f"STDERR (first 1000 chars): {str(stderr)[:1000]}",
+            stdout=str(stdout),
+            stderr=str(stderr),
+        ) from exc
     except subprocess.CalledProcessError as exc:  # pragma: no cover - subprocess failure
         stdout = exc.stdout or ""
         stderr = exc.stderr or ""
