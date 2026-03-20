@@ -15,6 +15,7 @@ class ConversationState:
     messages: List[Dict[str, Any]] = field(default_factory=list)
     loop_history: List[Dict[str, Any]] = field(default_factory=list)
     artifacts: List[Dict[str, Any]] = field(default_factory=list)
+    completed_runs: List[Dict[str, int]] = field(default_factory=list)
     current_abs_dataset_shortlist: List[Dict[str, Any]] = field(default_factory=list)
     current_macro_indicator_shortlist: List[Dict[str, Any]] = field(default_factory=list)
     pending_plan: Dict[str, Any] | None = None
@@ -65,6 +66,10 @@ class ConversationStore:
             messages=list(raw.get("messages") or []),
             loop_history=list(raw.get("loop_history") or []),
             artifacts=list(raw.get("artifacts") or []),
+            completed_runs=[
+                item for item in list(raw.get("completed_runs") or [])
+                if isinstance(item, dict)
+            ],
             current_abs_dataset_shortlist=list(raw.get("current_abs_dataset_shortlist") or []),
             current_macro_indicator_shortlist=list(raw.get("current_macro_indicator_shortlist") or []),
             pending_plan=raw.get("pending_plan") if isinstance(raw.get("pending_plan"), dict) else None,
@@ -91,6 +96,7 @@ class ConversationStore:
             "messages": state.messages,
             "loop_history": state.loop_history,
             "artifacts": state.artifacts,
+            "completed_runs": state.completed_runs,
             "current_abs_dataset_shortlist": state.current_abs_dataset_shortlist,
             "current_macro_indicator_shortlist": state.current_macro_indicator_shortlist,
             "pending_plan": state.pending_plan,

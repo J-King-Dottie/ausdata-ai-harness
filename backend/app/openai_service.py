@@ -61,6 +61,7 @@ logger.propagate = False
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
 WEB_SEARCH_URL = "https://html.duckduckgo.com/html/"
 WEB_USER_AGENT = "Mozilla/5.0 (compatible; Seshat/1.0; +https://dottieaistudio.com.au/)"
+PRIOR_RUN_WINDOW = 5
 HARNESS_RESPONSE_SCHEMA: Dict[str, Any] = {
     "type": "json_object",
 }
@@ -626,14 +627,18 @@ def _compose_best_effort_final(
     *,
     usage_callback: Optional[Callable[[Dict[str, int]], None]] = None,
 ) -> str:
+    completed_runs = _recent_completed_runs(state, keep_runs=PRIOR_RUN_WINDOW + 1)
+    recent_messages = _slice_from_recent_runs(state.messages, completed_runs, "message_count")
+    recent_loops = _slice_from_recent_runs(state.loop_history, completed_runs, "loop_count")
+    recent_artifacts = _slice_from_recent_runs(state.artifacts, completed_runs, "artifact_count")
     payload = {
         "task": {
             "user_message": user_message,
             "reason": "Loop limit reached. Compose the best possible final answer from the evidence already gathered.",
         },
-        "chat_history": build_chat_history_payload(state.messages, recent_full_limit=6, older_compact_limit=3),
-        "loop_history": compact_loop_history(state.loop_history, limit=4),
-        "available_artifacts": compact_artifacts(state.artifacts, limit=4),
+        "chat_history": build_chat_history_payload(recent_messages, recent_full_limit=6, older_compact_limit=3),
+        "loop_history": compact_loop_history(recent_loops, limit=4),
+        "available_artifacts": compact_artifacts(recent_artifacts, limit=4),
         "plan_state": _build_plan_state(state, user_message=user_content),
     }
     messages = [
@@ -3723,8 +3728,48 @@ def _retry_reasoning_effort(state) -> Optional[str]:
     return None
 
 
+def _recent_completed_runs(state, keep_runs: int = PRIOR_RUN_WINDOW) -> List[Dict[str, int]]:
+    runs = getattr(state, "completed_runs", [])
+    if not isinstance(runs, list):
+        return []
+    normalized: List[Dict[str, int]] = []
+    for item in runs:
+        if not isinstance(item, dict):
+            continue
+        message_count = item.get("message_count")
+        loop_count = item.get("loop_count")
+        artifact_count = item.get("artifact_count")
+        if not all(isinstance(value, int) and value >= 0 for value in [message_count, loop_count, artifact_count]):
+            continue
+        normalized.append(
+            {
+                "message_count": int(message_count),
+                "loop_count": int(loop_count),
+                "artifact_count": int(artifact_count),
+            }
+        )
+    return normalized[-keep_runs:] if keep_runs > 0 else []
+
+
+def _slice_from_recent_runs(items: List[Any], completed_runs: List[Dict[str, int]], count_key: str) -> List[Any]:
+    if not isinstance(items, list):
+        return []
+    if len(completed_runs) <= PRIOR_RUN_WINDOW:
+        return list(items)
+    start_index = int(completed_runs[-(PRIOR_RUN_WINDOW + 1)].get(count_key) or 0)
+    start_index = max(0, min(start_index, len(items)))
+    return items[start_index:]
+
+
+def _build_recent_chat_history_payload(state) -> List[Dict[str, str]]:
+    completed_runs = _recent_completed_runs(state, keep_runs=PRIOR_RUN_WINDOW + 1)
+    recent_messages = _slice_from_recent_runs(state.messages, completed_runs, "message_count")
+    return build_chat_history_payload(recent_messages, recent_full_limit=8, older_compact_limit=4)
+
+
 def _payload_loop_history(state, run_loop_start_index: int) -> tuple[List[Dict[str, Any]], int]:
-    prior = state.loop_history[:run_loop_start_index]
+    completed_runs = _recent_completed_runs(state, keep_runs=PRIOR_RUN_WINDOW + 1)
+    prior = _slice_from_recent_runs(state.loop_history[:run_loop_start_index], completed_runs, "loop_count")
     current = state.loop_history[run_loop_start_index:]
     prior_payload = compact_loop_history(prior, limit=4) if prior else []
     current_payload = compact_loop_history(current, limit=max(len(current), 1)) if current else []
@@ -3732,7 +3777,8 @@ def _payload_loop_history(state, run_loop_start_index: int) -> tuple[List[Dict[s
 
 
 def _payload_artifacts(state, run_artifact_start_index: int) -> tuple[List[Dict[str, Any]], int]:
-    prior = state.artifacts[:run_artifact_start_index]
+    completed_runs = _recent_completed_runs(state, keep_runs=PRIOR_RUN_WINDOW + 1)
+    prior = _slice_from_recent_runs(state.artifacts[:run_artifact_start_index], completed_runs, "artifact_count")
     current = state.artifacts[run_artifact_start_index:]
     prior_payload = compact_artifacts(prior, limit=4) if prior else []
     current_payload = compact_artifacts(current, limit=max(len(current), 1)) if current else []
@@ -3788,13 +3834,20 @@ def generate_response(
                     ),
                 }
             )
+            state.completed_runs.append(
+                {
+                    "message_count": len(state.messages),
+                    "loop_count": len(state.loop_history),
+                    "artifact_count": len(state.artifacts),
+                }
+            )
             state.active_run_message_count = len(state.messages)
             state.active_run_loop_count = len(state.loop_history)
             state.active_run_artifact_count = len(state.artifacts)
             store.save(state)
 
         active_user_message = user_content
-        payload_chat_history = build_chat_history_payload(state.messages, recent_full_limit=8, older_compact_limit=4)
+        payload_chat_history = _build_recent_chat_history_payload(state)
         pre_run_dataset_shortlist: List[Dict[str, Any]] = []
         pre_run_provider_route: Dict[str, Any] = {}
         clarification_followup = False
@@ -3823,7 +3876,7 @@ def generate_response(
 
         if _should_reset_after_user_correction(state, user_content):
             active_user_message = _reset_context_after_user_correction(state, user_content)
-            payload_chat_history = build_chat_history_payload(state.messages, recent_full_limit=8, older_compact_limit=4)
+            payload_chat_history = _build_recent_chat_history_payload(state)
             state.pending_plan = None
         state.current_abs_dataset_shortlist = []
         state.current_macro_indicator_shortlist = []
@@ -3879,9 +3932,7 @@ def generate_response(
                     _truncate(pending_message, 220),
                 )
                 active_user_message = pending_message
-                payload_chat_history = build_chat_history_payload(
-                    state.messages, recent_full_limit=8, older_compact_limit=4
-                )
+                payload_chat_history = _build_recent_chat_history_payload(state)
                 state.pending_user_message = ""
                 state.pending_user_mode = ""
                 state.pending_plan = None
