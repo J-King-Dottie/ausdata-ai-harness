@@ -34,7 +34,7 @@ from .harness.prompt_builder import (
 from .harness.state import build_chat_history_payload, compact_artifacts, compact_chat_history, compact_loop_history
 from .macro_data import (
     build_macro_shortlist,
-    evaluate_macro_result_shape,
+    get_macro_candidate_metadata,
     retrieve_macro_candidate,
     run_macro_query,
 )
@@ -96,8 +96,8 @@ ABS_QUERY_HINTS = {
 }
 MACRO_QUERY_HINTS = {
     "gdp", "inflation", "unemployment", "cpi", "interest rate", "policy rate",
-    "current account", "trade balance", "debt", "house prices", "exchange rate",
-    "world bank", "imf", "oecd", "productivity",
+    "current account", "trade balance", "trade", "imports", "exports", "debt", "house prices", "exchange rate",
+    "world bank", "imf", "oecd", "comtrade", "un comtrade", "productivity",
 }
 NON_ABS_COUNTRY_HINTS = {
     "japan", "china", "us", "usa", "united states", "uk", "united kingdom",
@@ -1485,7 +1485,7 @@ def _detect_provider_route(user_message: str) -> Dict[str, str]:
     has_foreign_country = any(token in query for token in NON_ABS_COUNTRY_HINTS)
     mentions_australia = any(token in query for token in {"australia", "australian", "aus"})
     has_comparison = any(token in query for token in {" vs ", " versus ", "compare", "comparison"})
-    has_macro_provider = any(token in query for token in {"world bank", "worldbank", "imf", "oecd"})
+    has_macro_provider = any(token in query for token in {"world bank", "worldbank", "imf", "oecd", "comtrade", "un comtrade", "uncomtrade"})
 
     if has_abs_hint and has_macro_term and has_foreign_country:
         return {
@@ -1639,11 +1639,6 @@ def _build_discover_payload(search_query: str, limit: int = 40) -> Dict[str, Any
         "search_query": search_query,
         "datasets": trimmed,
     }
-
-
-def _summarize_discover_payload(payload: Dict[str, Any]) -> str:
-    return _json_text(payload)
-
 
 def _build_raw_metadata_payload(dataset_id: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
     dimensions = [
@@ -2248,62 +2243,12 @@ def _execute_macro_data_tool(
     action = str(tool_input.get("action") or "").strip().lower()
     if action == "retrieve":
         action = "retrieve"
-    if action not in {"query", "discover", "retrieve"}:
+    if action not in {"query", "metadata", "retrieve"}:
         raise RuntimeError(f"Unsupported macro_data_tool action: {action}")
 
     query = str(tool_input.get("query") or "").strip()
     if not query:
         raise RuntimeError(f"macro_data_tool action {action} requires query")
-
-    if action == "discover":
-        prior_discovers = _count_recent_tool_discover_attempts(state, "macro_data_tool", {"macro_indicator_shortlist"})
-        if prior_discovers >= 2:
-            return _tool_result(
-                _truncate(
-                    f"Macro discovery exhausted for '{query}'. No stronger shortlist was found after two broader retries.",
-                    300,
-                ),
-                {
-                    "kind": "macro_discover_exhausted",
-                    "query": query,
-                    "max_retries_reached": True,
-                },
-            )
-        logger.info(
-            'Macro shortlist start cid=%s query="%s"',
-            conversation_id,
-            _truncate(query, 220),
-        )
-        payload = build_macro_shortlist(query)
-        candidates = payload.get("candidates") if isinstance(payload, dict) else []
-        state.current_macro_indicator_shortlist = [
-            item for item in _to_list(candidates) if isinstance(item, dict)
-        ]
-        shortlist_record = _persist_shortlist_artifact(
-            state=state,
-            conversation_id=conversation_id,
-            kind="macro_indicator_shortlist",
-            query=query,
-            candidates=state.current_macro_indicator_shortlist,
-        )
-        logger.info(
-            "Macro shortlist complete cid=%s candidates=%s top=%s",
-            conversation_id,
-            len(candidates) if isinstance(candidates, list) else 0,
-            [str(item.get("candidate_id") or "").strip() for item in (candidates or [])[:3]],
-        )
-        return _tool_result(
-            _truncate(
-                f"Prepared macro indicator shortlist for '{query}'. Candidates: {len(candidates) if isinstance(candidates, list) else 0}. Created artifact: {shortlist_record['artifact_id']}.",
-                300,
-            ),
-            {
-                "kind": "macro_indicator_shortlist",
-                "query": query,
-                "candidates": candidates if isinstance(candidates, list) else [],
-                "artifact_id": shortlist_record["artifact_id"],
-            },
-        )
 
     raw_candidate_ids = tool_input.get("candidateIds")
     candidate_ids: List[str] = []
@@ -2316,6 +2261,41 @@ def _execute_macro_data_tool(
     if candidate_id and candidate_id not in candidate_ids:
         candidate_ids.insert(0, candidate_id)
     candidate_ids = candidate_ids[:3]
+
+    if action == "metadata":
+        if not candidate_ids:
+            raise RuntimeError("macro_data_tool action metadata requires candidateId")
+        metadata_payload = get_macro_candidate_metadata(candidate_ids[0], query)
+        run_dir = _ensure_runtime_dirs(conversation_id)
+        artifact_payload = {
+            "artifact_type": "macro_metadata",
+            "query": query,
+            "candidate_id": candidate_ids[0],
+            "metadata": metadata_payload,
+        }
+        artifact_path = run_dir / "artifacts" / f"macro_metadata_{len(state.artifacts) + 1:03d}.json"
+        _write_json(artifact_path, artifact_payload)
+        record = _make_artifact_record(
+            state=state,
+            path=artifact_path,
+            kind="macro_metadata",
+            label=f"Macro metadata: {candidate_ids[0]}",
+            summary=_truncate(f"Macro metadata for {candidate_ids[0]} with Comtrade reference dimensions.", 300),
+        )
+        return _tool_result(
+            _truncate(
+                f"Prepared macro metadata for '{query}' using candidate {candidate_ids[0]}. Artifact: {record['artifact_id']}.",
+                300,
+            ),
+            {
+                "kind": "macro_metadata",
+                "query": query,
+                "candidate_id": candidate_ids[0],
+                "artifact_id": record["artifact_id"],
+                "metadata": metadata_payload,
+            },
+        )
+
     if action == "retrieve" and not candidate_ids:
         raise RuntimeError("macro_data_tool action retrieve requires candidateId or candidateIds")
     raw_countries = tool_input.get("countries")
@@ -2329,9 +2309,14 @@ def _execute_macro_data_tool(
     start_year = int(raw_start_year) if isinstance(raw_start_year, int) or (isinstance(raw_start_year, str) and str(raw_start_year).strip().isdigit()) else None
     raw_end_year = tool_input.get("endYear")
     end_year = int(raw_end_year) if isinstance(raw_end_year, int) or (isinstance(raw_end_year, str) and str(raw_end_year).strip().isdigit()) else None
+    reporter_codes = _to_list(tool_input.get("reporterCodes"))
+    partner_codes = _to_list(tool_input.get("partnerCodes"))
+    hs_codes = _to_list(tool_input.get("hsCodes"))
+    flow_code = str(tool_input.get("flowCode") or "").strip().upper()
+    frequency_code = str(tool_input.get("frequencyCode") or "").strip().upper()
 
     logger.info(
-        'Macro query start cid=%s action=%s query="%s" candidate_ids="%s" countries="%s" all_countries=%s years=%s:%s',
+        'Macro query start cid=%s action=%s query="%s" candidate_ids="%s" countries="%s" all_countries=%s years=%s:%s reporter_codes="%s" partner_codes="%s" flow=%s frequency=%s hs_codes="%s"',
         conversation_id,
         action,
         _truncate(query, 220),
@@ -2340,6 +2325,11 @@ def _execute_macro_data_tool(
         all_countries,
         start_year,
         end_year,
+        ",".join(str(item or "").strip() for item in reporter_codes if str(item or "").strip()),
+        ",".join(str(item or "").strip() for item in partner_codes if str(item or "").strip()),
+        flow_code,
+        frequency_code,
+        ",".join(str(item or "").strip() for item in hs_codes if str(item or "").strip()),
     )
     try:
         if action == "retrieve":
@@ -2351,11 +2341,12 @@ def _execute_macro_data_tool(
                     all_countries=all_countries,
                     start_year=start_year,
                     end_year=end_year,
+                    reporter_codes=[str(item or "").strip() for item in reporter_codes if str(item or "").strip()],
+                    partner_codes=[str(item or "").strip() for item in partner_codes if str(item or "").strip()],
+                    flow_code=flow_code,
+                    frequency_code=frequency_code,
+                    hs_codes=[str(item or "").strip() for item in hs_codes if str(item or "").strip()],
                 )
-                evaluation = evaluate_macro_result_shape(query, payload)
-                payload["retrieval_evaluation"] = evaluation
-                if not bool(evaluation.get("is_acceptable")):
-                    raise RuntimeError(str(evaluation.get("reason") or "No usable data returned in the requested shape."))
                 payload["attempted_candidate_ids"] = list(candidate_ids)
                 payload["selected_candidate_id"] = candidate_ids[0]
             else:
@@ -2371,6 +2362,11 @@ def _execute_macro_data_tool(
                             all_countries=all_countries,
                             start_year=start_year,
                             end_year=end_year,
+                            reporter_codes=[str(item or "").strip() for item in reporter_codes if str(item or "").strip()],
+                            partner_codes=[str(item or "").strip() for item in partner_codes if str(item or "").strip()],
+                            flow_code=flow_code,
+                            frequency_code=frequency_code,
+                            hs_codes=[str(item or "").strip() for item in hs_codes if str(item or "").strip()],
                         ): current_candidate_id
                         for current_candidate_id in candidate_ids
                     }
@@ -2382,29 +2378,14 @@ def _execute_macro_data_tool(
                             errors_by_id[current_candidate_id] = str(exc)
                 selected_payload = None
                 selected_candidate_id = ""
-                acceptable_results_by_id: Dict[str, Dict[str, Any]] = {}
                 for current_candidate_id in candidate_ids:
                     candidate_payload = results_by_id.get(current_candidate_id)
-                    if isinstance(candidate_payload, dict):
-                        evaluation = evaluate_macro_result_shape(query, candidate_payload)
-                        candidate_payload["retrieval_evaluation"] = evaluation
-                        if bool(evaluation.get("is_acceptable")):
-                            acceptable_results_by_id[current_candidate_id] = candidate_payload
-                for current_candidate_id in candidate_ids:
-                    candidate_payload = acceptable_results_by_id.get(current_candidate_id)
                     if isinstance(candidate_payload, dict):
                         selected_payload = candidate_payload
                         selected_candidate_id = current_candidate_id
                         break
                 if selected_payload is None:
-                    primary_error = errors_by_id.get(candidate_ids[0]) or "No usable data returned in the requested shape."
-                    for current_candidate_id in candidate_ids:
-                        candidate_payload = results_by_id.get(current_candidate_id)
-                        evaluation = candidate_payload.get("retrieval_evaluation") if isinstance(candidate_payload, dict) else {}
-                        reason = str(evaluation.get("reason") or "").strip() if isinstance(evaluation, dict) else ""
-                        if reason:
-                            primary_error = reason
-                            break
+                    primary_error = errors_by_id.get(candidate_ids[0]) or "No viable macro candidates returned usable data."
                     raise RuntimeError(primary_error)
                 payload = selected_payload
                 payload["attempted_candidate_ids"] = list(candidate_ids)
@@ -2415,7 +2396,7 @@ def _execute_macro_data_tool(
     except Exception as exc:
         if action == "retrieve":
             logger.error(
-                'Macro retrieval failed cid=%s query="%s" candidate_ids="%s" countries="%s" all_countries=%s years=%s:%s error="%s"',
+                'Macro retrieval failed cid=%s query="%s" candidate_ids="%s" countries="%s" all_countries=%s years=%s:%s reporter_codes="%s" partner_codes="%s" flow=%s frequency=%s hs_codes="%s" error="%s"',
                 conversation_id,
                 _truncate(query, 220),
                 ",".join(candidate_ids),
@@ -2423,6 +2404,11 @@ def _execute_macro_data_tool(
                 all_countries,
                 start_year,
                 end_year,
+                ",".join(str(item or "").strip() for item in reporter_codes if str(item or "").strip()),
+                ",".join(str(item or "").strip() for item in partner_codes if str(item or "").strip()),
+                flow_code,
+                frequency_code,
+                ",".join(str(item or "").strip() for item in hs_codes if str(item or "").strip()),
                 _truncate(exc, 500),
             )
             remaining_candidates = [
@@ -2710,7 +2696,7 @@ def _execute_abs_data_tool(
     conversation_id: str,
 ) -> Dict[str, Any]:
     action = str(tool_input.get("action") or "").strip()
-    if action not in {"discover", "metadata", "raw_retrieve"}:
+    if action not in {"metadata", "raw_retrieve"}:
         raise RuntimeError(f"Unsupported abs_data_tool action: {action}")
 
     dataset_id = str(tool_input.get("datasetId") or "").strip()
@@ -2722,31 +2708,6 @@ def _execute_abs_data_tool(
         and isinstance(state.pending_plan.get("plan_context"), dict)
         else {}
     )
-
-    if action == "discover":
-        search_query = str(tool_input.get("searchQuery") or "").strip()
-        prior_discovers = _count_recent_tool_discover_attempts(state, "abs_data_tool", {"discover"})
-        if prior_discovers >= 2:
-            return _tool_result(
-                _truncate(
-                    f"ABS discovery exhausted for '{search_query}'. No stronger shortlist was found after two broader retries.",
-                    300,
-                ),
-                {
-                    "kind": "discover_exhausted",
-                    "search_query": search_query,
-                    "max_retries_reached": True,
-                },
-            )
-        payload = _build_discover_payload(search_query)
-        return _tool_result(
-            _summarize_discover_payload(payload),
-            {
-                "kind": "discover",
-                "search_query": search_query,
-                "datasets": payload.get("datasets") or [],
-            },
-        )
 
     if action == "metadata":
         if not dataset_id:
@@ -3364,15 +3325,6 @@ def _build_loop_handoff_summary(
                 known_bits.append(f"Source: {' '.join(item for item in [ref_provider, ref_dataset] if item)}.")
         known = " ".join(known_bits) or known
         remaining = "Inspect or narrow the retrieved artifact before further analysis."
-    elif kind == "discover":
-        datasets = result_dict.get("datasets") if isinstance(result_dict.get("datasets"), list) else []
-        outcome = "Reviewed broader ABS discovery results."
-        known = f"Candidate datasets found: {len(datasets)}." if datasets else (known or "No discovery candidates were recorded.")
-        remaining = "Inspect metadata for the best candidate before raw retrieval."
-    elif kind == "discover_exhausted":
-        outcome = "ABS discovery retries exhausted."
-        known = known or "No stronger ABS shortlist was found after two broader retries."
-        remaining = "If any near-miss candidates from the last shortlist are still interesting, surface them to the user; otherwise say no suitable ABS dataset was found."
     elif kind == "raw_metadata":
         dataset_id = str(result_dict.get("dataset_id") or "").strip()
         anchor_candidates = result_dict.get("anchor_candidates") if isinstance(result_dict.get("anchor_candidates"), list) else []
@@ -3430,10 +3382,18 @@ def _build_loop_handoff_summary(
                 known_bits.append(f"Upstream sources: {'; '.join(preview)}.")
         known = " ".join(known_bits) or known
         remaining = "Inspect or narrow the retrieved artifact before comparing, ranking, or answering."
-    elif kind == "macro_discover_exhausted":
-        outcome = "Macro discovery retries exhausted."
-        known = known or "No stronger macro shortlist was found after two broader retries."
-        remaining = "If any near-miss candidates from the last shortlist are still interesting, surface them to the user; otherwise say no suitable macro data was found."
+    elif kind == "macro_metadata":
+        candidate_id = str(result_dict.get("candidate_id") or "").strip()
+        metadata = result_dict.get("metadata") if isinstance(result_dict.get("metadata"), dict) else {}
+        counts = metadata.get("fullDimensionCounts") if isinstance(metadata.get("fullDimensionCounts"), dict) else {}
+        outcome = f"Inspected macro metadata for {candidate_id or 'the selected candidate'}."
+        count_bits = []
+        for key in ["reporters", "partners", "hs_4digit"]:
+            value = counts.get(key)
+            if isinstance(value, int):
+                count_bits.append(f"{key}={value}")
+        known = f"Available dimension counts: {', '.join(count_bits)}." if count_bits else known
+        remaining = "Choose exact reporter, partner, flow, frequency, and HS codes from metadata before retrieval."
     elif kind == "sandbox":
         created_ids = result_dict.get("created_artifact_ids") if isinstance(result_dict.get("created_artifact_ids"), list) else []
         sandbox_result = result_dict.get("result")
@@ -3492,21 +3452,6 @@ def _record_loop_feedback(
     if result_data is not None:
         entry["result_data"] = result_data
     state.loop_history.append(entry)
-
-
-def _count_recent_tool_discover_attempts(state, step_id: str, discover_kinds: set[str]) -> int:
-    count = 0
-    for item in reversed(state.loop_history):
-        if not isinstance(item, dict):
-            break
-        step = item.get("step") if isinstance(item.get("step"), dict) else {}
-        if str(step.get("id") or "").strip() != step_id:
-            break
-        result_data = item.get("result_data") if isinstance(item.get("result_data"), dict) else {}
-        if str(result_data.get("kind") or "").strip() not in discover_kinds:
-            break
-        count += 1
-    return count
 
 
 def _normalize_sandbox_code(code: Any) -> str:
@@ -3862,10 +3807,7 @@ def generate_response(
             if bool(plan_context.get("await_user_input")):
                 clarification_followup = True
                 state.pending_plan = None
-                active_user_message = (
-                    f"{str(plan_context.get('question') or user_content).strip()}\n\n"
-                    f"User clarification: {user_content.strip()}"
-                ).strip()
+                active_user_message = user_content
             else:
                 plan_reply = _detect_plan_reply(user_content)
                 if plan_reply == "approve":
@@ -3875,7 +3817,7 @@ def generate_response(
                         "plan_markdown": str(pending_plan.get("plan_markdown") or "").strip(),
                         "plan_context": plan_context,
                     }
-                    active_user_message = str(plan_context.get("question") or user_content).strip() or user_content
+                    active_user_message = user_content
                 else:
                     state.pending_plan = None
 
@@ -4313,8 +4255,6 @@ def generate_response(
                 elif result_kind == "macro_unavailable":
                     pre_run_macro_indicator_shortlist = []
                     state.current_macro_indicator_shortlist = []
-                elif result_kind == "macro_discover_exhausted":
-                    pre_run_macro_indicator_shortlist = list(getattr(state, "current_macro_indicator_shortlist", []) or [])
 
             _record_loop_feedback(
                 state,

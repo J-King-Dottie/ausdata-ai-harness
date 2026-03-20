@@ -1002,7 +1002,7 @@ function ProductTitle() {
                   <p>
                     This system does the same. Designed for Australian analysts,
                     it combines detailed domestic data with global macro
-                    sources.
+                    sources including UN Comtrade trade data.
                   </p>
                   <p>
                     Ask anything and Nisaba will find the numbers and explain
@@ -1063,6 +1063,11 @@ function ProductTitle() {
                             <td>Macro</td>
                             <td>IMF</td>
                             <td>132</td>
+                          </tr>
+                          <tr>
+                            <td>Macro</td>
+                            <td>UN Comtrade</td>
+                            <td>1</td>
                           </tr>
                         </tbody>
                       </table>
@@ -1776,8 +1781,8 @@ function App() {
             <div className="empty-state">
               <div className="empty-state-note">
                 <div className="empty-state-note-group">
-                  <p>Nisaba combines ABS data and other Australian sources with global data from the OECD, World Bank, and&nbsp;IMF.</p>
                   <p>Designed for detailed Australian analysis and global macro comparison.</p>
+                  <p aria-hidden="true">&nbsp;</p>
                   <p>Performs best on targeted questions. Break complex queries down.</p>
                 </div>
               </div>

@@ -6,7 +6,7 @@ Its purpose is to help people ask detailed questions about Australia, retrieve t
 
 Nisaba started with ABS at the core, and ABS remains central. But the project is no longer ABS-only. The direction now is broader: combine ABS with other useful public Australian data sources over time, so the harness becomes more nuanced, more detailed, and more useful than any single-source Australian data assistant.
 
-Global macro sources such as the OECD, World Bank, and IMF are included for comparison and context. They matter, but they are not the point. The point is depth on Australia.
+Global macro sources such as the OECD, World Bank, IMF, and UN Comtrade are included for comparison and context. They matter, but they are not the point. The point is depth on Australia.
 
 Current source summary:
 
@@ -18,6 +18,7 @@ Current source summary:
 | Macro | OECD | 1,464 |
 | Macro | World Bank | 28,377 |
 | Macro | IMF | 132 |
+| Macro | UN Comtrade | 1 |
 
 ## Why This Exists
 
@@ -66,6 +67,13 @@ Example `.env`:
 
 ```env
 OPENAI_API_KEY=your_key_here
+COMTRADE_API_KEY=optional_key_here
+```
+
+Refresh the local UN Comtrade metadata bundle when needed:
+
+```bash
+python3 scripts/build_comtrade_metadata.py
 ```
 
 ## Local Dev
@@ -92,4 +100,3 @@ If you want backend auto-reload:
 ```powershell
 .\start-dev.ps1 -SkipInstall -Reload
 ```
-

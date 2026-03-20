@@ -84,7 +84,6 @@
 ### Macro retrieval rule:
 - Start from the macro shortlist prepared after a `macro` provider selection.
 - Choose the best candidate for the requested retrieval shape.
-- If the shortlist is clearly inadequate, use `discover` to generate a better shortlist query.
 - Retrieve through `macro_data_tool`.
 - Use sandbox only after retrieval when narrowing, ranking, comparing, or combining series is actually needed.
 - If shortlisted candidates are exhausted, stop rather than looping through repeated speculative retries.
@@ -96,6 +95,11 @@
 - If none of the shortlisted candidates is an adequate match, do one better shortlist retry with a tighter query.
 - If the direct metric is still unavailable after that retry and the question is derived, break it into components and retrieve those separately.
 - When multiple targeted shortlists are needed in one run, create them in successive steps and rely on persisted shortlist artifacts in `available_artifacts`.
+
+### Discovery rules:
+- If the current shortlist is missing or clearly inadequate, rewrite the shortlist query and try native shortlist generation again instead of switching immediately to web search.
+- Keep the revised shortlist query close to catalog labels and descriptions, preserving the full target metric when it matters.
+- Prefer one tighter retry. Use at most two shortlist-regeneration retries in one run, then stop.
 
 ### Reasoning rules:
 - For derived questions, try the direct metric first; if it is still unavailable after one shortlist retry, retrieve the minimum components and combine them in sandbox.
@@ -266,6 +270,11 @@ Strict `dataKey` examples for ABS-backed datasets:
 - Follow the macro retrieval rule above.
 - If `pre_run_provider_route.selected_search_query` is present, use it as the default retrieval query unless you have a strong reason to refine it.
 - Start from `pre_run_macro_indicator_shortlist` or a relevant persisted `macro_indicator_shortlist` artifact in `available_artifacts`.
+- In final answers, cite the upstream provider metadata returned in the artifact, not the Nisaba middleware as the source.
+- Also pass the natural-language `query`, usually reusing `pre_run_provider_route.selected_search_query`.
+- Do not invent provider names, indicator ids, or candidate ids outside the shortlist.
+
+##### World Bank, IMF, and OECD
 - Match the candidate to the requested retrieval shape, not just the indicator name. Distinguish:
   - one country over time
   - all countries latest year
@@ -273,8 +282,7 @@ Strict `dataKey` examples for ABS-backed datasets:
 - If one candidate is clearly best, use it. If multiple candidates remain materially plausible, follow the clarification policy above instead of guessing.
 - Use `macro_data_tool` itself to choose between World Bank, IMF, and OECD from the native macro catalog. Do not use `web_search_tool` to choose a macro provider or source.
 - If the first macro result comes back from the wrong provider family, rewrite the macro query and retry `macro_data_tool` instead of doing web search.
-- If a chosen macro candidate comes back unavailable, use the remaining candidates from that same current shortlist to choose a different candidate yourself. Do not regenerate the shortlist unless you explicitly use `discover`.
-- In final answers, cite the upstream provider metadata returned in the artifact, not the Nisaba middleware as the source.
+- If a chosen macro candidate comes back unavailable, use the remaining candidates from that same current shortlist to choose a different candidate yourself. Do not loop through repeated speculative shortlist retries.
 - Prefer passing an ordered `candidateIds` list of 2 or 3 exact shortlisted candidates when several strong options remain. The backend will try them in parallel and keep the highest-ranked one that returns data.
 - If one candidate is clearly dominant, you may pass a single exact `candidateId` instead.
 - Decide the retrieval shape explicitly whenever needed:
@@ -286,19 +294,21 @@ Strict `dataKey` examples for ABS-backed datasets:
   - many countries, latest year
   - many countries, many years
   - many countries, two endpoints for change over time
-- Also pass the natural-language `query`, usually reusing `pre_run_provider_route.selected_search_query`.
-- Do not invent provider names, indicator ids, or candidate ids outside the shortlist.
 
-`discover` instructions:
-- Use `discover` only if `pre_run_macro_indicator_shortlist` is missing or clearly inadequate.
-- `discover` means generate a better macro search query and rerun the native macro catalog shortlist with that query.
-- Each new shortlist persists as its own artifact, so later retrieval steps may still use earlier shortlist artifacts from the same run.
-- Write the macro shortlist query to match macro catalog labels and descriptions closely. Keep the full target metric, unit, population, geography, and time intent when those details matter.
-- Do not reduce a derived request to only one component too early. Keep the full intended metric in the query unless you are deliberately switching to component retrieval.
-- Prefer label-like query forms over conversational forms. If needed, include both the likely canonical label and one close alias in the same query.
-- This should be rare fallback behavior, not the default first move.
-- Use at most two broader `discover` retries in one run.
-- After two broader retries, stop discovery. If the last shortlist still contains near-miss candidates, tell the user what you found and ask if any are interesting; otherwise say no suitable macro data was found.
+##### UN Comtrade
+- UN Comtrade is available through `macro_data_tool`, but it behaves differently from World Bank, IMF, and OECD.
+- UN Comtrade is a parameterized trade retrieval, not a fixed-series macro indicator lookup.
+- If the shortlisted macro candidate says `requires_metadata_before_retrieval: true`, inspect metadata first before retrieval.
+- For Comtrade, use metadata to choose:
+  - `reporter`: the country whose trade is being measured
+  - `partner`: the counterpart country, or world total when the user is not asking for bilateral trade
+  - `flow`: Import or Export
+  - `hs code`: either one 2-digit HS chapter or one 4-digit HS heading
+- Use world-total partner by default. Only choose a named partner when the user explicitly asks for bilateral trade or a named counterpart.
+- For UN Comtrade, strongly prefer annual retrieval. Use monthly only if the user explicitly asks for monthly trade data.
+- For UN Comtrade, do not attempt broad retrievals across many countries, many HS codes, and long time ranges at the same time. Expand only one axis at a time and let downstream filtering narrow the returned data.
+- Use `allCountries: true` only when the request genuinely calls for a cross-country view.
+- Do not use shortlist retry as a way to search for alternate Comtrade product codes. Use the Comtrade metadata step instead.
 
 #### Expected Output
 - `step.id` must be `macro_data_tool`.
@@ -306,9 +316,8 @@ Strict `dataKey` examples for ABS-backed datasets:
 - `model_output.tool_input` must contain:
   - `action`
   - `query`
-- `discover` requires:
-  - `action` set to `discover`
-  - `query`
+
+##### World Bank, IMF, and OECD
 - `retrieve` requires:
   - `action` set to `retrieve`
   - either `candidateId`
@@ -319,6 +328,22 @@ Strict `dataKey` examples for ABS-backed datasets:
   - `countries`
   - `startYear`
   - `endYear`
+
+##### UN Comtrade
+- `metadata` requires:
+  - `action` set to `metadata`
+  - `candidateId`
+  - `query`
+- `retrieve` requires:
+  - `action` set to `retrieve`
+  - `candidateId`
+  - `query`
+- For UN Comtrade retrieval, pass exact ids copied from metadata:
+  - `flowCode`
+  - `reporterCodes`
+  - `partnerCodes`
+  - `hsCodes`
+- For UN Comtrade retrieval, use `allCountries: true` only when the request genuinely calls for a cross-country view.
 
 
 ### `web_search_tool`

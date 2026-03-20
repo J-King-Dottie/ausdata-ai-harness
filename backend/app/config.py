@@ -22,6 +22,8 @@ class Settings(BaseModel):
     worldbank_base_url: str = "https://api.worldbank.org/v2"
     imf_base_url: str = "https://www.imf.org/external/datamapper/api/v1"
     oecd_base_url: str = "https://sdmx.oecd.org/public/rest"
+    comtrade_base_url: str = "https://comtradeapi.un.org/data/v1/get"
+    comtrade_api_key: str | None = None
     macro_timeout_seconds: int = 120
     node_binary: str = "node"
     python_binary: str = "python3"
@@ -68,6 +70,14 @@ def get_settings() -> Settings:
     oecd_base_url = os.getenv("OECD_BASE_URL")
     if oecd_base_url:
         overrides["oecd_base_url"] = oecd_base_url
+
+    comtrade_base_url = os.getenv("COMTRADE_BASE_URL")
+    if comtrade_base_url:
+        overrides["comtrade_base_url"] = comtrade_base_url
+
+    comtrade_api_key = os.getenv("COMTRADE_API_KEY")
+    if comtrade_api_key:
+        overrides["comtrade_api_key"] = comtrade_api_key
 
     macro_timeout = os.getenv("MACRO_TIMEOUT_SECONDS") or os.getenv("MACRO_TIMEOUT")
     if macro_timeout:

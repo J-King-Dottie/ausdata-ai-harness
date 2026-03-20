@@ -8,7 +8,8 @@ import re
 import sqlite3
 import subprocess
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -19,6 +20,7 @@ from .config import get_settings
 
 settings = get_settings()
 MACRO_CATALOG_PATH = Path(__file__).resolve().parents[2] / "MACRO_CATALOG_FULL.json"
+COMTRADE_METADATA_PATH = Path(__file__).resolve().parents[2] / "COMTRADE_METADATA.json"
 logger = logging.getLogger("abs.backend.macro")
 
 
@@ -93,6 +95,7 @@ COUNTRY_GROUPS: Dict[str, List[str]] = {
 WORLD_BANK_PROVIDER = "World Bank"
 IMF_PROVIDER = "IMF"
 OECD_PROVIDER = "OECD"
+COMTRADE_PROVIDER = "UN Comtrade"
 
 
 def _truncate_log(text: Any, length: int = 400) -> str:
@@ -329,6 +332,7 @@ PROVIDER_KEYWORDS: Dict[str, List[str]] = {
     "worldbank": ["world bank", "worldbank", "wb data"],
     "imf": ["imf", "international monetary fund"],
     "oecd": ["oecd", "organisation for economic co-operation and development"],
+    "comtrade": ["comtrade", "un comtrade", "uncomtrade", "united nations comtrade"],
 }
 
 DISCRIMINATOR_TERMS: Dict[str, List[str]] = {
@@ -342,6 +346,7 @@ DISCRIMINATOR_TERMS: Dict[str, List[str]] = {
     "population": ["population", "people"],
     "debt": ["debt", "borrowing"],
     "productivity": ["productivity", "hour worked", "gdp per hour"],
+    "trade": ["trade", "imports", "import", "exports", "export", "hs", "commodity"],
 }
 
 SPECIFICITY_TERMS: Dict[str, Dict[str, Any]] = {
@@ -383,6 +388,42 @@ _CATALOG_ENTRIES: List[MacroCatalogEntry] = []
 _CATALOG_ENTRY_BY_ID: Dict[str, MacroCatalogEntry] = {}
 _CATALOG_CONN: Optional[sqlite3.Connection] = None
 _CATALOG_FILE_MTIME: Optional[float] = None
+
+
+def _extra_macro_catalog_entries() -> List[MacroCatalogEntry]:
+    return [
+        MacroCatalogEntry(
+            entry_id="comtrade::goods_trade",
+            provider_key="comtrade",
+            provider_name=COMTRADE_PROVIDER,
+            concept_id="goods_trade",
+            concept_label="Goods trade",
+            indicator_label="UN Comtrade goods trade (imports and exports by partner and HS code)",
+            description=(
+                "UN Comtrade goods trade retrieval for imports and exports, bilateral trade, world totals, "
+                "and HS product codes down to 4-digit headings. Metadata exposes reporter countries, "
+                "partner areas, annual or monthly frequency, and HS code descriptions."
+            ),
+            search_text=(
+                "goods trade imports exports import export bilateral trade partner hs code hs4 hs 4 digit heading "
+                "commodity merchandise trade un comtrade united nations comtrade comtrade"
+            ),
+            provider_config={
+                "series_id": "UN_COMTRADE_GOODS_TRADE",
+                "label": "UN Comtrade goods trade",
+                "requires_metadata_before_retrieval": True,
+                "metadata_source": "COMTRADE_METADATA.json",
+                "source_url_template": "https://comtradeplus.un.org/TradeFlow",
+            },
+            concept={
+                "concept_id": "goods_trade",
+                "label": "Goods trade",
+                "description": "UN Comtrade goods trade retrieval for imports and exports with partner and HS product selection.",
+                "unit": "US Dollars",
+                "frequency": "annual_or_monthly",
+            },
+        )
+    ]
 
 
 def _build_macro_catalog_entries() -> List[MacroCatalogEntry]:
@@ -464,6 +505,10 @@ def _load_macro_catalog_entries_from_file() -> List[MacroCatalogEntry]:
         entries.append(entry)
     if not entries:
         raise RuntimeError(f"Macro catalog file {MACRO_CATALOG_PATH} contained no valid entries.")
+    existing_ids = {entry.entry_id for entry in entries}
+    for entry in _extra_macro_catalog_entries():
+        if entry.entry_id not in existing_ids:
+            entries.append(entry)
     return entries
 
 
@@ -637,6 +682,7 @@ def build_macro_shortlist(query: str, limit: int = 40) -> Dict[str, Any]:
             "concept_label": entry.concept_label,
             "indicator_label": entry.indicator_label,
             "description": entry.description,
+            "requires_metadata_before_retrieval": entry.provider_key == "comtrade",
         }
         for entry in matches
     ]
@@ -650,6 +696,175 @@ def _normalize_text(value: str) -> str:
     return re.sub(r"[^a-z0-9\s]+", " ", str(value or "").lower()).strip()
 
 
+def _contains_token(text: str, token: str) -> bool:
+    clean_text = f" {str(text or '').strip()} "
+    clean_token = str(token or "").strip()
+    if not clean_token:
+        return False
+    return f" {clean_token} " in clean_text
+
+
+@lru_cache(maxsize=1)
+def _load_comtrade_metadata() -> Dict[str, Any]:
+    if not COMTRADE_METADATA_PATH.exists():
+        raise RuntimeError(f"Comtrade metadata file not found: {COMTRADE_METADATA_PATH}")
+    try:
+        payload = json.loads(COMTRADE_METADATA_PATH.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise RuntimeError(f"Failed to read Comtrade metadata file {COMTRADE_METADATA_PATH}: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"Comtrade metadata file {COMTRADE_METADATA_PATH} must contain a top-level object.")
+    return payload
+
+
+def _comtrade_dimension(name: str) -> List[Dict[str, Any]]:
+    payload = _load_comtrade_metadata()
+    values = payload.get(name)
+    return [item for item in values if isinstance(item, dict)]
+
+
+def _score_comtrade_option(query: str, option: Dict[str, Any]) -> int:
+    normalized_query = f" {_normalize_text(query)} "
+    score = 0
+    code = str(option.get("code") or "").strip().lower()
+    label = _normalize_text(str(option.get("label") or ""))
+
+    if code and _contains_token(normalized_query, code):
+        score += 40
+    if label and label in normalized_query:
+        score += 30
+
+    for text in [label]:
+        if not text:
+            continue
+        tokens = [token for token in text.split() if len(token) >= 3 and token not in CATALOG_STOPWORDS]
+        token_hits = sum(1 for token in tokens if _contains_token(normalized_query, token))
+        score += token_hits * 3
+
+    return score
+
+
+def _comtrade_matches(query: str, options: List[Dict[str, Any]], *, limit: int = 12) -> List[Dict[str, Any]]:
+    ranked: List[tuple[int, Dict[str, Any]]] = []
+    for option in options:
+        score = _score_comtrade_option(query, option)
+        if score <= 0:
+            continue
+        ranked.append((score, option))
+    ranked.sort(key=lambda item: (-item[0], str(item[1].get("label") or ""), str(item[1].get("code") or "")))
+    return [item for _, item in ranked[:limit]]
+
+
+def _comtrade_default_flow(query: str) -> str:
+    normalized_query = f" {_normalize_text(query)} "
+    if " import " in normalized_query or " imports " in normalized_query:
+        return "M"
+    if " export " in normalized_query or " exports " in normalized_query:
+        return "X"
+    raise RuntimeError("Comtrade retrieval requires a trade flow. Choose either Import (M) or Export (X).")
+
+
+def _comtrade_default_frequency(query: str) -> str:
+    normalized_query = f" {_normalize_text(query)} "
+    if " monthly " in normalized_query or " month " in normalized_query:
+        return "M"
+    return "A"
+
+
+def _comtrade_default_period_range(
+    *,
+    frequency_code: str,
+    start_year: Optional[int],
+    end_year: Optional[int],
+) -> tuple[int, int]:
+    now = datetime.now(timezone.utc)
+    default_end = now.year - 2 if frequency_code == "A" else now.year - 1
+    resolved_end = end_year if isinstance(end_year, int) else default_end
+    resolved_start = start_year if isinstance(start_year, int) else (resolved_end - 9 if frequency_code == "A" else resolved_end - 1)
+    if resolved_start > resolved_end:
+        resolved_start = resolved_end
+    return resolved_start, resolved_end
+
+
+def _comtrade_period_values(start_year: int, end_year: int, frequency_code: str) -> List[str]:
+    if frequency_code == "M":
+        values: List[str] = []
+        for year in range(start_year, end_year + 1):
+            for month in range(1, 13):
+                values.append(f"{year}{month:02d}")
+        return values
+    return [str(year) for year in range(start_year, end_year + 1)]
+
+
+def _chunk_period_values(period_values: List[str], max_periods: int = 12) -> List[str]:
+    if not period_values:
+        return []
+    size = max(1, int(max_periods))
+    return [
+        ",".join(period_values[index : index + size])
+        for index in range(0, len(period_values), size)
+    ]
+
+
+def _coerce_code_list(raw_value: Any) -> List[str]:
+    values: List[str] = []
+    if isinstance(raw_value, list):
+        for item in raw_value:
+            clean = str(item or "").strip()
+            if clean and clean not in values:
+                values.append(clean)
+    elif raw_value is not None:
+        clean = str(raw_value).strip()
+        if clean:
+            values.append(clean)
+    return values
+
+
+def _resolve_comtrade_area_codes(raw_values: List[str], options: List[Dict[str, Any]]) -> List[str]:
+    by_key: Dict[str, str] = {}
+    for option in options:
+        code = str(option.get("code") or "").strip()
+        if not code:
+            continue
+        by_key[code] = code
+        label = _normalize_text(str(option.get("label") or ""))
+        if label:
+            by_key[label] = code
+
+    resolved: List[str] = []
+    for raw in raw_values:
+        clean = str(raw or "").strip()
+        if not clean:
+            continue
+        mapped = by_key.get(clean)
+        if mapped is None:
+            mapped = by_key.get(clean.upper())
+        if mapped is None:
+            mapped = by_key.get(_normalize_text(clean))
+        if mapped and mapped not in resolved:
+            resolved.append(mapped)
+    return resolved
+
+
+def _resolve_comtrade_hs_codes(raw_values: List[str], options: List[Dict[str, Any]]) -> List[str]:
+    by_key: Dict[str, str] = {}
+    for option in options:
+        code = str(option.get("code") or "").strip()
+        label = _normalize_text(str(option.get("label") or ""))
+        if code:
+            by_key[code] = code
+        if label:
+            by_key[label] = code
+
+    resolved: List[str] = []
+    for raw in raw_values:
+        clean = str(raw or "").strip()
+        if not clean:
+            continue
+        mapped = by_key.get(clean) or by_key.get(_normalize_text(clean))
+        if mapped and mapped not in resolved:
+            resolved.append(mapped)
+    return resolved
 
 
 def detect_explicit_provider(query: str) -> Optional[str]:
@@ -750,6 +965,97 @@ def wants_country_ranking(query: str) -> bool:
     return any(marker in normalized for marker in ranking_markers)
 
 
+def _build_comtrade_metadata_payload(query: str, selected_entry: MacroCatalogEntry) -> Dict[str, Any]:
+    flows = _comtrade_dimension("flows")
+    countries = _comtrade_dimension("countries")
+    hs_2digit = _comtrade_dimension("hs_2digit")
+    hs_4digit = _comtrade_dimension("hs_4digit")
+
+    partner_options = [{"code": "0", "label": "All partners (World total)"}] + countries
+    matched_hs_2digit = _comtrade_matches(query, hs_2digit, limit=25)
+    matched_hs_4digit = _comtrade_matches(query, hs_4digit, limit=100)
+
+    return {
+        "provider": COMTRADE_PROVIDER,
+        "candidate_id": selected_entry.entry_id,
+        "concept_id": selected_entry.concept_id,
+        "concept_label": selected_entry.concept_label,
+        "indicator_label": selected_entry.indicator_label,
+        "requires_metadata_before_retrieval": True,
+        "defaults": {
+            "partnerCode": "0",
+            "frequencyCode": "A",
+        },
+        "guidance": [
+            "Pick one reporter, one partner, one flow, and one HS code before retrieval.",
+            "Use partner code 0 for world total unless the user explicitly asks for bilateral trade with a named counterpart.",
+            "Choose either a 2-digit HS chapter or a 4-digit HS heading. If you choose a 2-digit code, retrieval should use that 2-digit level directly.",
+            "Annual world trade is the default shape. Use monthly only if the user explicitly asks for it.",
+            "Do not attempt broad UN Comtrade retrievals across many countries, many HS codes, and long time ranges at the same time; expand only one axis at a time and rely on downstream filtering for the rest.",
+        ],
+        "dimensions": [
+            {
+                "id": "FLOW",
+                "label": "Trade flow",
+                "required": True,
+                "options": flows,
+            },
+            {
+                "id": "REPORTER",
+                "label": "Reporter country",
+                "required": True,
+                "optionCount": len(countries),
+                "options": countries,
+            },
+            {
+                "id": "PARTNER",
+                "label": "Partner country",
+                "required": True,
+                "optionCount": len(partner_options),
+                "options": partner_options,
+            },
+            {
+                "id": "HS_2DIGIT",
+                "label": "HS 2-digit chapter",
+                "required": True,
+                "optionCount": len(hs_2digit),
+                "matchedOptions": matched_hs_2digit,
+            },
+            {
+                "id": "HS_4DIGIT",
+                "label": "HS 4-digit heading",
+                "required": True,
+                "optionCount": len(hs_4digit),
+                "matchedOptions": matched_hs_4digit,
+            },
+        ],
+        "fullDimensionCounts": {
+            "flows": len(flows),
+            "reporters": len(countries),
+            "partners": len(partner_options),
+            "hs_2digit": len(hs_2digit),
+            "hs_4digit": len(hs_4digit),
+        },
+    }
+
+
+def get_macro_candidate_metadata(candidate_id: str, query: str) -> Dict[str, Any]:
+    clean_candidate_id = str(candidate_id or "").strip()
+    clean_query = str(query or "").strip()
+    if not clean_candidate_id:
+        raise RuntimeError("macro_data_tool metadata requires candidateId.")
+    if not clean_query:
+        raise RuntimeError("macro_data_tool metadata requires query.")
+
+    _get_macro_catalog_connection()
+    selected_entry = _CATALOG_ENTRY_BY_ID.get(clean_candidate_id)
+    if selected_entry is None:
+        raise RuntimeError(f"Unknown macro candidateId '{clean_candidate_id}'.")
+    if selected_entry.provider_key != "comtrade":
+        raise RuntimeError(f"Macro metadata is only supported for Comtrade candidates in this harness. Received provider '{selected_entry.provider_key}'.")
+    return _build_comtrade_metadata_payload(clean_query, selected_entry)
+
+
 def infer_macro_retrieval_shape(query: str, countries: List[str]) -> Dict[str, Any]:
     normalized = f" {_normalize_text(query)} "
     explicit_country_count = len(_sort_country_codes(countries))
@@ -803,31 +1109,6 @@ def normalize_macro_retrieval_inputs(
         "all_countries": resolved_all_countries,
         "start_year": resolved_start_year,
         "end_year": resolved_end_year,
-    }
-
-
-def evaluate_macro_result_shape(query: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    series = payload.get("series") if isinstance(payload.get("series"), list) else []
-    countries = {
-        str(item.get("country_code") or "").strip().upper()
-        for item in series
-        if isinstance(item, dict) and str(item.get("country_code") or "").strip()
-    }
-    query_countries = payload.get("countries") if isinstance(payload.get("countries"), list) else []
-    shape = infer_macro_retrieval_shape(query, [str(item) for item in query_countries])
-    country_count = len(countries)
-    is_acceptable = country_count >= int(shape.get("min_country_count") or 1)
-    reason = ""
-    if not is_acceptable and bool(shape.get("multi_country")):
-        reason = (
-            f"Requested {shape.get('shape')} but only {country_count} country series were returned; "
-            f"needed at least {shape.get('min_country_count')}."
-        )
-    return {
-        "shape": shape,
-        "country_count": country_count,
-        "is_acceptable": is_acceptable,
-        "reason": reason,
     }
 
 
@@ -1376,6 +1657,224 @@ def _fetch_oecd(query: str, concept: Dict[str, Any], provider_config: Dict[str, 
     }
 
 
+def _fetch_comtrade(
+    query: str,
+    concept: Dict[str, Any],
+    provider_config: Dict[str, Any],
+    *,
+    reporter_codes: List[str],
+    partner_codes: List[str],
+    flow_code: str,
+    frequency_code: str,
+    hs_codes: List[str],
+    start_year: Optional[int],
+    end_year: Optional[int],
+) -> Dict[str, Any]:
+    reporters_lookup = {str(item.get("code") or "").strip(): item for item in _comtrade_dimension("countries")}
+    hs_lookup = {
+        str(item.get("code") or "").strip(): item
+        for item in (_comtrade_dimension("hs_2digit") + _comtrade_dimension("hs_4digit"))
+    }
+    flow_lookup = {str(item.get("code") or "").strip(): item for item in _comtrade_dimension("flows")}
+    frequency_lookup = {
+        "A": {"code": "A", "label": "Annual"},
+        "M": {"code": "M", "label": "Monthly"},
+    }
+
+    clean_reporters = _resolve_comtrade_area_codes(reporter_codes, list(reporters_lookup.values()))
+    clean_partners = [str(code).strip() for code in partner_codes if str(code).strip()]
+    if any(str(item or "").strip() == "0" for item in partner_codes):
+        clean_partners.insert(0, "0")
+        clean_partners = list(dict.fromkeys(clean_partners))
+    clean_hs_codes = _resolve_comtrade_hs_codes(hs_codes, list(hs_lookup.values()))
+    if not clean_reporters:
+        raise RuntimeError("Comtrade retrieval requires at least one valid reporterCode.")
+    if not clean_partners:
+        clean_partners = ["0"]
+    if not clean_hs_codes:
+        clean_hs_codes = ["TOTAL"]
+
+    clean_flow_code = flow_code if flow_code in flow_lookup else _comtrade_default_flow(query)
+    clean_frequency_code = frequency_code if frequency_code in frequency_lookup else _comtrade_default_frequency(query)
+    resolved_start_year, resolved_end_year = _comtrade_default_period_range(
+        frequency_code=clean_frequency_code,
+        start_year=start_year,
+        end_year=end_year,
+    )
+
+    period_values = _comtrade_period_values(resolved_start_year, resolved_end_year, clean_frequency_code)
+    period_chunks = _chunk_period_values(period_values, max_periods=12)
+    if not period_chunks:
+        raise RuntimeError("Comtrade retrieval produced an empty period selection.")
+
+    request_count = len(clean_reporters) * len(clean_partners) * len(clean_hs_codes) * len(period_chunks)
+    point_budget = len(clean_reporters) * len(clean_partners) * len(clean_hs_codes) * len(period_values)
+    if request_count > 36 or point_budget > 1200:
+        raise RuntimeError(
+            "Requested UN Comtrade retrieval is too broad. Narrow one of: countries, partners, HS codes, frequency, or time range."
+        )
+
+    if settings.comtrade_api_key:
+        base_url = f"{settings.comtrade_base_url.rstrip('/')}/C/{clean_frequency_code}/HS"
+    else:
+        base_url = f"https://comtradeapi.un.org/public/v1/preview/C/{clean_frequency_code}/HS"
+    source_url = "https://comtradeplus.un.org/TradeFlow"
+    flow_label = str((flow_lookup.get(clean_flow_code) or {}).get("label") or clean_flow_code)
+    frequency_label = str((frequency_lookup.get(clean_frequency_code) or {}).get("label") or clean_frequency_code)
+
+    all_series: Dict[tuple[str, str, str, str], Dict[str, Any]] = {}
+    source_refs: List[Dict[str, Any]] = []
+    last_request_url = ""
+
+    for reporter_code in clean_reporters:
+        for partner_code in clean_partners:
+            for hs_code in clean_hs_codes:
+                for period_chunk in period_chunks:
+                    params: Dict[str, Any] = {
+                        "typeCode": "C",
+                        "freqCode": clean_frequency_code,
+                        "clCode": "HS",
+                        "reporterCode": reporter_code,
+                        "period": period_chunk,
+                        "partnerCode": partner_code,
+                        "cmdCode": hs_code,
+                        "flowCode": clean_flow_code,
+                        "format": "json",
+                    }
+                    if settings.comtrade_api_key:
+                        params["subscription-key"] = settings.comtrade_api_key
+
+                    request_url = _request_url(base_url, params)
+                    last_request_url = request_url
+                    logger.info(
+                        'Macro retrieval request provider=comtrade reporters="%s" partners="%s" hs="%s" flow=%s frequency=%s url="%s"',
+                        ",".join(clean_reporters),
+                        ",".join(clean_partners),
+                        ",".join(clean_hs_codes),
+                        clean_flow_code,
+                        clean_frequency_code,
+                        _truncate_log(request_url, 700),
+                    )
+                    try:
+                        response = httpx.get(base_url, params=params, timeout=max(settings.macro_timeout_seconds, 60))
+                        response.raise_for_status()
+                        payload = response.json()
+                    except Exception as exc:
+                        response = exc.response if isinstance(exc, httpx.HTTPStatusError) else None
+                        body_preview = _truncate_log(response.text, 500) if response is not None else ""
+                        logger.error(
+                            'Macro retrieval error provider=comtrade url="%s" status=%s error="%s" body="%s"',
+                            _truncate_log(request_url, 700),
+                            getattr(response, "status_code", ""),
+                            _truncate_log(exc, 500),
+                            body_preview,
+                        )
+                        raise
+
+                    rows = payload.get("data") if isinstance(payload, dict) else None
+                    if not isinstance(rows, list):
+                        continue
+
+                    for row in rows:
+                        if not isinstance(row, dict):
+                            continue
+                        period = str(row.get("period") or "").strip()
+                        value = _parse_numeric(row.get("primaryValue"))
+                        if not period or value is None:
+                            continue
+                        row_reporter_code = str(row.get("reporterCode") or reporter_code).strip()
+                        row_partner_code = str(row.get("partnerCode") or partner_code).strip()
+                        row_cmd_code = str(row.get("cmdCode") or hs_code).strip() or hs_code
+                        key = (row_reporter_code, row_partner_code, row_cmd_code, clean_flow_code)
+                        entry = all_series.setdefault(
+                            key,
+                            {
+                                "provider": COMTRADE_PROVIDER,
+                                "country": str(row.get("reporterDesc") or (reporters_lookup.get(row_reporter_code) or {}).get("label") or row_reporter_code),
+                                "country_code": row_reporter_code,
+                                "partner": str(row.get("partnerDesc") or ("World" if row_partner_code == "0" else row_partner_code)),
+                                "partner_code": row_partner_code,
+                                "indicator": f"{flow_label} - {str((hs_lookup.get(row_cmd_code) or {}).get('label') or row.get('cmdDesc') or row_cmd_code)}",
+                                "series_id": provider_config.get("series_id") or concept.get("concept_id") or "UN_COMTRADE_GOODS_TRADE",
+                                "unit": "US Dollars",
+                                "frequency": "monthly" if clean_frequency_code == "M" else "annual",
+                                "flow_code": clean_flow_code,
+                                "flow_label": flow_label,
+                                "hs_code": row_cmd_code,
+                                "hs_label": str((hs_lookup.get(row_cmd_code) or {}).get("label") or row.get("cmdDesc") or row_cmd_code),
+                                "source_url": source_url,
+                                "points": [],
+                            },
+                        )
+                        x_value = f"{period[:4]}-{period[4:6]}" if clean_frequency_code == "M" and len(period) == 6 else period
+                        entry["points"].append({"x": x_value, "y": value})
+
+    series: List[Dict[str, Any]] = []
+    seen_refs: set[str] = set()
+    for item in all_series.values():
+        points_by_x: Dict[str, float] = {}
+        for point in item.get("points") or []:
+            x_value = str(point.get("x") or "").strip()
+            y_value = point.get("y")
+            if not x_value or not isinstance(y_value, (int, float)):
+                continue
+            if x_value not in points_by_x or y_value > points_by_x[x_value]:
+                points_by_x[x_value] = float(y_value)
+        points = [{"x": key, "y": points_by_x[key]} for key in sorted(points_by_x.keys())]
+        if not points:
+            continue
+        item["points"] = points
+        series.append(item)
+        ref_key = "|".join(
+            [
+                str(item.get("country") or ""),
+                str(item.get("partner") or ""),
+                str(item.get("hs_code") or ""),
+                str(item.get("flow_code") or ""),
+            ]
+        )
+        if ref_key in seen_refs:
+            continue
+        seen_refs.add(ref_key)
+        source_refs.append(
+            _source_reference(
+                COMTRADE_PROVIDER,
+                indicator=str(item.get("indicator") or ""),
+                series_id=str(item.get("hs_code") or ""),
+                country=str(item.get("country") or ""),
+                source_url=source_url,
+            )
+        )
+
+    if not series:
+        raise RuntimeError("UN Comtrade returned no usable data for the selected request shape.")
+
+    logger.info(
+        'Macro retrieval success provider=comtrade series=%s request="%s"',
+        len(series),
+        _truncate_log(last_request_url, 700),
+    )
+
+    return {
+        "provider": COMTRADE_PROVIDER,
+        "concept_id": concept["concept_id"],
+        "concept_label": concept["label"],
+        "api_request_url": last_request_url,
+        "query_parameters": {
+            "reporterCodes": clean_reporters,
+            "partnerCodes": clean_partners,
+            "flowCode": clean_flow_code,
+            "frequencyCode": clean_frequency_code,
+            "frequencyLabel": frequency_label,
+            "hsCodes": clean_hs_codes,
+            "startYear": resolved_start_year,
+            "endYear": resolved_end_year,
+        },
+        "series": series,
+        "source_references": source_refs,
+    }
+
+
 def run_macro_query(query: str) -> Dict[str, Any]:
     clean_query = str(query or "").strip()
     if not clean_query:
@@ -1406,6 +1905,21 @@ def run_macro_query(query: str) -> Dict[str, Any]:
         result = _fetch_imf(clean_query, concept, provider_config, countries, start_year, end_year, all_countries=all_countries)
     elif provider_key == "oecd":
         result = _fetch_oecd(clean_query, concept, provider_config, countries, start_year, end_year, all_countries=all_countries)
+    elif provider_key == "comtrade":
+        if not countries:
+            raise RuntimeError("UN Comtrade retrieval requires an explicit reporter country. Inspect metadata first and choose exact reporter/partner/HS codes.")
+        result = _fetch_comtrade(
+            clean_query,
+            concept,
+            provider_config,
+            reporter_codes=[countries[0]],
+            partner_codes=["0"],
+            flow_code=_comtrade_default_flow(clean_query),
+            frequency_code=_comtrade_default_frequency(clean_query),
+            hs_codes=["TOTAL"],
+            start_year=start_year,
+            end_year=end_year,
+        )
     else:
         raise RuntimeError(f"Unsupported macro provider '{provider_key}'.")
 
@@ -1441,7 +1955,6 @@ def run_macro_query(query: str) -> Dict[str, Any]:
     result["all_countries"] = all_countries
     result["start_year"] = start_year
     result["end_year"] = end_year
-    result["retrieval_evaluation"] = evaluate_macro_result_shape(clean_query, result)
     return result
 
 
@@ -1453,6 +1966,11 @@ def retrieve_macro_candidate(
     all_countries: bool = False,
     start_year: Optional[int] = None,
     end_year: Optional[int] = None,
+    reporter_codes: Optional[List[str]] = None,
+    partner_codes: Optional[List[str]] = None,
+    flow_code: Optional[str] = None,
+    frequency_code: Optional[str] = None,
+    hs_codes: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     clean_candidate_id = str(candidate_id or "").strip()
     if not clean_candidate_id:
@@ -1490,6 +2008,19 @@ def retrieve_macro_candidate(
         result = _fetch_imf(clean_query, concept, provider_config, countries, start_year, end_year, all_countries=all_countries)
     elif provider_key == "oecd":
         result = _fetch_oecd(clean_query, concept, provider_config, countries, start_year, end_year, all_countries=all_countries)
+    elif provider_key == "comtrade":
+        result = _fetch_comtrade(
+            clean_query,
+            concept,
+            provider_config,
+            reporter_codes=[str(item).strip() for item in (reporter_codes or []) if str(item).strip()],
+            partner_codes=[str(item).strip() for item in (partner_codes or []) if str(item).strip()],
+            flow_code=str(flow_code or "").strip().upper(),
+            frequency_code=str(frequency_code or "").strip().upper(),
+            hs_codes=[str(item).strip() for item in (hs_codes or []) if str(item).strip()],
+            start_year=start_year,
+            end_year=end_year,
+        )
     else:
         raise RuntimeError(f"Unsupported macro provider '{provider_key}'.")
 
@@ -1507,5 +2038,4 @@ def retrieve_macro_candidate(
     result["all_countries"] = all_countries
     result["start_year"] = start_year
     result["end_year"] = end_year
-    result["retrieval_evaluation"] = evaluate_macro_result_shape(clean_query, result)
     return result
