@@ -17,7 +17,21 @@ def main() -> int:
     if args.reload:
         reload_kwargs = {
             "reload_dirs": [str(Path(__file__).resolve().parents[2] / "backend"), str(Path(__file__).resolve().parents[2] / "frontend")],
-            "reload_excludes": ["vendor/*", "vendor/**", "runtime/*", "runtime/**", "*.sqlite3"],
+            "reload_excludes": [
+                ".venv/*",
+                ".venv/**",
+                "node_modules/*",
+                "node_modules/**",
+                "frontend/node_modules/*",
+                "frontend/node_modules/**",
+                "vendor/*",
+                "vendor/**",
+                "build/*",
+                "build/**",
+                "runtime/*",
+                "runtime/**",
+                "*.sqlite3",
+            ],
         }
 
     uvicorn.run(

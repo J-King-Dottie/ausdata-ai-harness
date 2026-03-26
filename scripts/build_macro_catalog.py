@@ -19,6 +19,7 @@ OECD_DATAFLOW_URL = "https://sdmx.oecd.org/public/rest/dataflow/all/all/latest"
 WORLD_BANK_PROVIDER = "World Bank"
 IMF_PROVIDER = "IMF"
 OECD_PROVIDER = "OECD"
+COMTRADE_PROVIDER = "UN Comtrade"
 
 SDMX_NS = {
     "message": "http://www.sdmx.org/resources/sdmxml/schemas/v2_1/message",
@@ -126,20 +127,13 @@ def fetch_world_bank_catalog(client: httpx.Client) -> List[Dict[str, Any]]:
                 "concept_id": indicator_id,
                 "concept_label": label,
                 "indicator_label": label,
+                "unit": "",
                 "description": description or label,
                 "search_text": search_text,
                 "provider_config": {
                     "series_id": indicator_id,
                     "label": label,
                     "source_url_template": source_url,
-                },
-                "concept": {
-                    "concept_id": indicator_id,
-                    "label": label,
-                    "description": source_note or description or label,
-                    "source": source_label,
-                    "source_organization": source_org,
-                    "topics": topics,
                 },
             }
         )
@@ -175,6 +169,7 @@ def fetch_imf_catalog(client: httpx.Client) -> List[Dict[str, Any]]:
                 "concept_id": clean_series_id,
                 "concept_label": label,
                 "indicator_label": label,
+                "unit": unit,
                 "description": _clean_text(" ".join(part for part in [label, description, source, unit] if part)) or label,
                 "search_text": _join_search_text(
                     [
@@ -193,14 +188,6 @@ def fetch_imf_catalog(client: httpx.Client) -> List[Dict[str, Any]]:
                     "label": label,
                     "dataset": dataset,
                     "source_url_template": source_url,
-                },
-                "concept": {
-                    "concept_id": clean_series_id,
-                    "label": label,
-                    "description": description or label,
-                    "dataset": dataset,
-                    "source": source,
-                    "unit": unit,
                 },
             }
         )
@@ -237,6 +224,7 @@ def fetch_oecd_catalog(client: httpx.Client) -> List[Dict[str, Any]]:
                 "concept_id": dataflow_id,
                 "concept_label": label,
                 "indicator_label": label,
+                "unit": "",
                 "description": description or label,
                 "search_text": _join_search_text(
                     [
@@ -255,16 +243,56 @@ def fetch_oecd_catalog(client: httpx.Client) -> List[Dict[str, Any]]:
                     "label": label,
                     "source_url_template": source_url,
                 },
-                "concept": {
-                    "concept_id": dataflow_id,
-                    "label": label,
-                    "description": description or label,
-                    "agency": agency_id,
-                    "dsd_id": dsd_id,
-                },
             }
         )
     return entries
+
+
+def build_comtrade_catalog() -> List[Dict[str, Any]]:
+    label = "UN Comtrade goods trade (imports and exports by partner and HS code)"
+    description = (
+        "UN Comtrade goods trade retrieval for imports and exports, bilateral trade, world totals, "
+        "and HS product codes down to 4-digit headings. Metadata exposes reporter countries, "
+        "partner areas, annual or monthly frequency, and HS code descriptions."
+    )
+    return [
+        {
+            "entry_id": "comtrade::goods_trade",
+            "provider_key": "comtrade",
+            "provider_name": COMTRADE_PROVIDER,
+            "concept_id": "goods_trade",
+            "concept_label": "Goods trade",
+            "indicator_label": label,
+            "unit": "US Dollars",
+            "description": description,
+            "search_text": _join_search_text(
+                [
+                    "goods trade",
+                    "imports",
+                    "exports",
+                    "import",
+                    "export",
+                    "bilateral trade",
+                    "partner",
+                    "hs code",
+                    "hs4",
+                    "hs 4 digit heading",
+                    "commodity",
+                    "merchandise trade",
+                    "un comtrade",
+                    "united nations comtrade",
+                    "comtrade",
+                ]
+            ),
+            "provider_config": {
+                "series_id": "UN_COMTRADE_GOODS_TRADE",
+                "label": "UN Comtrade goods trade",
+                "requires_metadata_before_retrieval": True,
+                "metadata_source": "COMTRADE_METADATA.json",
+                "source_url_template": "https://comtradeplus.un.org/TradeFlow",
+            },
+        }
+    ]
 
 
 def dedupe_entries(entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -282,15 +310,8 @@ def dedupe_entries(entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         )
         if len(_clean_text(entry.get("description"))) > len(_clean_text(existing.get("description"))):
             existing["description"] = entry["description"]
-        concept = existing.get("concept")
-        if isinstance(concept, dict):
-            candidate_concept = entry.get("concept")
-            if isinstance(candidate_concept, dict):
-                if len(_clean_text(candidate_concept.get("description"))) > len(_clean_text(concept.get("description"))):
-                    concept["description"] = candidate_concept.get("description")
-                for field in ("source", "source_organization", "dataset", "unit"):
-                    if not _clean_text(concept.get(field)) and _clean_text(candidate_concept.get(field)):
-                        concept[field] = candidate_concept.get(field)
+        if not _clean_text(existing.get("unit")) and _clean_text(entry.get("unit")):
+            existing["unit"] = entry["unit"]
     return list(deduped.values())
 
 
@@ -303,15 +324,17 @@ def main() -> None:
         world_bank_entries = fetch_world_bank_catalog(client)
         imf_entries = fetch_imf_catalog(client)
         oecd_entries = fetch_oecd_catalog(client)
+    comtrade_entries = build_comtrade_catalog()
 
     entries = sorted(
-        filter_stale_entries(dedupe_entries(world_bank_entries + imf_entries + oecd_entries)),
+        filter_stale_entries(dedupe_entries(comtrade_entries + world_bank_entries + imf_entries + oecd_entries)),
         key=lambda item: (item["provider_key"], item["concept_label"].lower(), item["entry_id"]),
     )
     OUTPUT_PATH.write_text(json.dumps(entries, indent=2) + "\n", encoding="utf-8")
     print(f"Wrote {len(entries)} entries to {OUTPUT_PATH}")
     print(
         "Counts: "
+        f"comtrade={len(comtrade_entries)} "
         f"worldbank={len(world_bank_entries)} "
         f"imf={len(imf_entries)} "
         f"oecd={len(oecd_entries)}"

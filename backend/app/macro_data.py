@@ -378,10 +378,10 @@ class MacroCatalogEntry:
     concept_id: str
     concept_label: str
     indicator_label: str
+    unit: str
     description: str
     search_text: str
     provider_config: Dict[str, Any]
-    concept: Dict[str, Any]
 
 
 _CATALOG_ENTRIES: List[MacroCatalogEntry] = []
@@ -399,6 +399,7 @@ def _extra_macro_catalog_entries() -> List[MacroCatalogEntry]:
             concept_id="goods_trade",
             concept_label="Goods trade",
             indicator_label="UN Comtrade goods trade (imports and exports by partner and HS code)",
+            unit="US Dollars",
             description=(
                 "UN Comtrade goods trade retrieval for imports and exports, bilateral trade, world totals, "
                 "and HS product codes down to 4-digit headings. Metadata exposes reporter countries, "
@@ -414,13 +415,6 @@ def _extra_macro_catalog_entries() -> List[MacroCatalogEntry]:
                 "requires_metadata_before_retrieval": True,
                 "metadata_source": "COMTRADE_METADATA.json",
                 "source_url_template": "https://comtradeplus.un.org/TradeFlow",
-            },
-            concept={
-                "concept_id": "goods_trade",
-                "label": "Goods trade",
-                "description": "UN Comtrade goods trade retrieval for imports and exports with partner and HS product selection.",
-                "unit": "US Dollars",
-                "frequency": "annual_or_monthly",
             },
         )
     ]
@@ -463,10 +457,10 @@ def _build_macro_catalog_entries() -> List[MacroCatalogEntry]:
                 concept_id=str(concept.get("concept_id") or "").strip(),
                 concept_label=str(concept.get("label") or "").strip(),
                 indicator_label=indicator_label,
+                unit="",
                 description=description,
                 search_text=search_text,
                 provider_config=dict(provider_config),
-                concept=dict(concept),
             )
             entries.append(entry)
     return entries
@@ -495,10 +489,10 @@ def _load_macro_catalog_entries_from_file() -> List[MacroCatalogEntry]:
             concept_id=str(item.get("concept_id") or "").strip(),
             concept_label=str(item.get("concept_label") or "").strip(),
             indicator_label=str(item.get("indicator_label") or "").strip(),
+            unit=str(item.get("unit") or "").strip(),
             description=str(item.get("description") or "").strip(),
             search_text=str(item.get("search_text") or "").strip(),
             provider_config=dict(item.get("provider_config") or {}),
-            concept=dict(item.get("concept") or {}),
         )
         if not entry.entry_id or not entry.provider_key or not entry.indicator_label:
             continue
@@ -538,6 +532,7 @@ def _get_macro_catalog_connection() -> sqlite3.Connection:
             concept_label TEXT NOT NULL,
             indicator_label TEXT NOT NULL,
             description TEXT NOT NULL,
+            unit TEXT NOT NULL,
             search_text TEXT NOT NULL
         )
         """
@@ -558,8 +553,8 @@ def _get_macro_catalog_connection() -> sqlite3.Connection:
         conn.execute(
             """
             INSERT INTO macro_indicators (
-                entry_id, provider_key, provider_name, concept_id, concept_label, indicator_label, description, search_text
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                entry_id, provider_key, provider_name, concept_id, concept_label, indicator_label, description, unit, search_text
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 entry.entry_id,
@@ -569,6 +564,7 @@ def _get_macro_catalog_connection() -> sqlite3.Connection:
                 entry.concept_label,
                 entry.indicator_label,
                 entry.description,
+                entry.unit,
                 entry.search_text,
             ),
         )
@@ -1043,9 +1039,9 @@ def get_macro_candidate_metadata(candidate_id: str, query: str) -> Dict[str, Any
     clean_candidate_id = str(candidate_id or "").strip()
     clean_query = str(query or "").strip()
     if not clean_candidate_id:
-        raise RuntimeError("macro_data_tool metadata requires candidateId.")
+        raise RuntimeError("macro metadata requires candidateId.")
     if not clean_query:
-        raise RuntimeError("macro_data_tool metadata requires query.")
+        raise RuntimeError("macro metadata requires query.")
 
     _get_macro_catalog_connection()
     selected_entry = _CATALOG_ENTRY_BY_ID.get(clean_candidate_id)
@@ -1227,11 +1223,11 @@ def _fetch_world_bank_with_curl(request_url: str) -> Any:
         ) from exc
 
 
-def _fetch_world_bank(query: str, concept: Dict[str, Any], provider_config: Dict[str, Any], countries: List[str], start_year: Optional[int], end_year: Optional[int], *, all_countries: bool = False) -> Dict[str, Any]:
+def _fetch_world_bank(query: str, entry: MacroCatalogEntry, provider_config: Dict[str, Any], countries: List[str], start_year: Optional[int], end_year: Optional[int], *, all_countries: bool = False) -> Dict[str, Any]:
     if not countries and not all_countries:
         countries = ["AUS"]
     series_id = str(provider_config.get("series_id") or "").strip()
-    label = str(provider_config.get("label") or concept.get("label") or series_id).strip()
+    label = str(provider_config.get("label") or entry.concept_label or series_id).strip()
     requested_countries = list(countries)
     country_path = "all"
     url = f"{settings.worldbank_base_url.rstrip('/')}/country/{country_path}/indicator/{series_id}"
@@ -1318,7 +1314,7 @@ def _fetch_world_bank(query: str, concept: Dict[str, Any], provider_config: Dict
                 "country_code": country_code,
                 "indicator": label,
                 "series_id": series_id,
-                "unit": "",
+                "unit": entry.unit,
                 "frequency": "annual",
                 "points": points,
                 "source_url": source_url,
@@ -1351,17 +1347,17 @@ def _fetch_world_bank(query: str, concept: Dict[str, Any], provider_config: Dict
 
     return {
         "provider": WORLD_BANK_PROVIDER,
-        "concept_id": concept["concept_id"],
-        "concept_label": concept["label"],
+        "concept_id": entry.concept_id,
+        "concept_label": entry.concept_label,
         "api_request_url": str(response.request.url),
         "series": series,
         "source_references": source_refs,
     }
 
 
-def _fetch_imf(query: str, concept: Dict[str, Any], provider_config: Dict[str, Any], countries: List[str], start_year: Optional[int], end_year: Optional[int], *, all_countries: bool = False) -> Dict[str, Any]:
+def _fetch_imf(query: str, entry: MacroCatalogEntry, provider_config: Dict[str, Any], countries: List[str], start_year: Optional[int], end_year: Optional[int], *, all_countries: bool = False) -> Dict[str, Any]:
     series_id = str(provider_config.get("series_id") or "").strip()
-    label = str(provider_config.get("label") or concept.get("label") or series_id).strip()
+    label = str(provider_config.get("label") or entry.concept_label or series_id).strip()
     url = f"{settings.imf_base_url.rstrip('/')}/{series_id}"
     logger.info(
         'Macro retrieval request provider=imf indicator=%s countries="%s" all_countries=%s url="%s"',
@@ -1423,7 +1419,7 @@ def _fetch_imf(query: str, concept: Dict[str, Any], provider_config: Dict[str, A
                 "country_code": country_code,
                 "indicator": label,
                 "series_id": series_id,
-                "unit": "",
+                "unit": entry.unit,
                 "frequency": "annual",
                 "points": points,
                 "source_url": source_url,
@@ -1456,8 +1452,8 @@ def _fetch_imf(query: str, concept: Dict[str, Any], provider_config: Dict[str, A
 
     return {
         "provider": IMF_PROVIDER,
-        "concept_id": concept["concept_id"],
-        "concept_label": concept["label"],
+        "concept_id": entry.concept_id,
+        "concept_label": entry.concept_label,
         "api_request_url": str(response.request.url),
         "series": series,
         "source_references": source_refs,
@@ -1524,7 +1520,7 @@ def _choose_oecd_rows(rows: List[Dict[str, str]], provider_config: Dict[str, Any
     return filtered
 
 
-def _fetch_oecd(query: str, concept: Dict[str, Any], provider_config: Dict[str, Any], countries: List[str], start_year: Optional[int], end_year: Optional[int], *, all_countries: bool = False) -> Dict[str, Any]:
+def _fetch_oecd(query: str, entry: MacroCatalogEntry, provider_config: Dict[str, Any], countries: List[str], start_year: Optional[int], end_year: Optional[int], *, all_countries: bool = False) -> Dict[str, Any]:
     agency = str(provider_config.get("agency") or "").strip()
     dataflow = str(provider_config.get("dataflow") or "").strip()
     version = str(provider_config.get("version") or "1.0").strip()
@@ -1590,7 +1586,7 @@ def _fetch_oecd(query: str, concept: Dict[str, Any], provider_config: Dict[str, 
         )
         raise RuntimeError(f"OECD returned no usable rows for {dataflow}.")
 
-    label = str(provider_config.get("label") or concept.get("label") or dataflow).strip()
+    label = str(provider_config.get("label") or entry.concept_label or dataflow).strip()
     series_id = dataflow
     grouped: Dict[str, List[Dict[str, Any]]] = {}
     for row in selected_rows:
@@ -1616,7 +1612,7 @@ def _fetch_oecd(query: str, concept: Dict[str, Any], provider_config: Dict[str, 
                 "country_code": country_code,
                 "indicator": label,
                 "series_id": series_id,
-                "unit": "",
+                "unit": entry.unit,
                 "frequency": "annual" if all("-" not in item["x"] for item in points) else "mixed",
                 "points": points,
                 "source_url": source_url,
@@ -1649,8 +1645,8 @@ def _fetch_oecd(query: str, concept: Dict[str, Any], provider_config: Dict[str, 
 
     return {
         "provider": OECD_PROVIDER,
-        "concept_id": concept["concept_id"],
-        "concept_label": concept["label"],
+        "concept_id": entry.concept_id,
+        "concept_label": entry.concept_label,
         "api_request_url": str(response.request.url),
         "series": series,
         "source_references": source_refs,
@@ -1659,7 +1655,7 @@ def _fetch_oecd(query: str, concept: Dict[str, Any], provider_config: Dict[str, 
 
 def _fetch_comtrade(
     query: str,
-    concept: Dict[str, Any],
+    entry: MacroCatalogEntry,
     provider_config: Dict[str, Any],
     *,
     reporter_codes: List[str],
@@ -1786,7 +1782,7 @@ def _fetch_comtrade(
                         row_partner_code = str(row.get("partnerCode") or partner_code).strip()
                         row_cmd_code = str(row.get("cmdCode") or hs_code).strip() or hs_code
                         key = (row_reporter_code, row_partner_code, row_cmd_code, clean_flow_code)
-                        entry = all_series.setdefault(
+                        series_entry = all_series.setdefault(
                             key,
                             {
                                 "provider": COMTRADE_PROVIDER,
@@ -1795,8 +1791,8 @@ def _fetch_comtrade(
                                 "partner": str(row.get("partnerDesc") or ("World" if row_partner_code == "0" else row_partner_code)),
                                 "partner_code": row_partner_code,
                                 "indicator": f"{flow_label} - {str((hs_lookup.get(row_cmd_code) or {}).get('label') or row.get('cmdDesc') or row_cmd_code)}",
-                                "series_id": provider_config.get("series_id") or concept.get("concept_id") or "UN_COMTRADE_GOODS_TRADE",
-                                "unit": "US Dollars",
+                                "series_id": provider_config.get("series_id") or entry.concept_id or "UN_COMTRADE_GOODS_TRADE",
+                                "unit": entry.unit or "US Dollars",
                                 "frequency": "monthly" if clean_frequency_code == "M" else "annual",
                                 "flow_code": clean_flow_code,
                                 "flow_label": flow_label,
@@ -1807,7 +1803,7 @@ def _fetch_comtrade(
                             },
                         )
                         x_value = f"{period[:4]}-{period[4:6]}" if clean_frequency_code == "M" and len(period) == 6 else period
-                        entry["points"].append({"x": x_value, "y": value})
+                        series_entry["points"].append({"x": x_value, "y": value})
 
     series: List[Dict[str, Any]] = []
     seen_refs: set[str] = set()
@@ -1857,8 +1853,8 @@ def _fetch_comtrade(
 
     return {
         "provider": COMTRADE_PROVIDER,
-        "concept_id": concept["concept_id"],
-        "concept_label": concept["label"],
+        "concept_id": entry.concept_id,
+        "concept_label": entry.concept_label,
         "api_request_url": last_request_url,
         "query_parameters": {
             "reporterCodes": clean_reporters,
@@ -1878,7 +1874,7 @@ def _fetch_comtrade(
 def run_macro_query(query: str) -> Dict[str, Any]:
     clean_query = str(query or "").strip()
     if not clean_query:
-        raise RuntimeError("macro_data_tool query cannot be empty.")
+        raise RuntimeError("macro query cannot be empty.")
 
     explicit_provider = detect_explicit_provider(clean_query)
     catalog_matches = _search_macro_catalog(clean_query, explicit_provider=explicit_provider, limit=5)
@@ -1889,7 +1885,6 @@ def run_macro_query(query: str) -> Dict[str, Any]:
             f"Currently supported concepts include: {supported}."
         )
     selected_entry = catalog_matches[0]
-    concept = dict(selected_entry.concept)
     provider_key = selected_entry.provider_key
     provider_config = dict(selected_entry.provider_config)
 
@@ -1900,17 +1895,17 @@ def run_macro_query(query: str) -> Dict[str, Any]:
     all_countries = retrieval_inputs["all_countries"]
 
     if provider_key == "worldbank":
-        result = _fetch_world_bank(clean_query, concept, provider_config, countries, start_year, end_year, all_countries=all_countries)
+        result = _fetch_world_bank(clean_query, selected_entry, provider_config, countries, start_year, end_year, all_countries=all_countries)
     elif provider_key == "imf":
-        result = _fetch_imf(clean_query, concept, provider_config, countries, start_year, end_year, all_countries=all_countries)
+        result = _fetch_imf(clean_query, selected_entry, provider_config, countries, start_year, end_year, all_countries=all_countries)
     elif provider_key == "oecd":
-        result = _fetch_oecd(clean_query, concept, provider_config, countries, start_year, end_year, all_countries=all_countries)
+        result = _fetch_oecd(clean_query, selected_entry, provider_config, countries, start_year, end_year, all_countries=all_countries)
     elif provider_key == "comtrade":
         if not countries:
             raise RuntimeError("UN Comtrade retrieval requires an explicit reporter country. Inspect metadata first and choose exact reporter/partner/HS codes.")
         result = _fetch_comtrade(
             clean_query,
-            concept,
+            selected_entry,
             provider_config,
             reporter_codes=[countries[0]],
             partner_codes=["0"],
@@ -1974,10 +1969,10 @@ def retrieve_macro_candidate(
 ) -> Dict[str, Any]:
     clean_candidate_id = str(candidate_id or "").strip()
     if not clean_candidate_id:
-        raise RuntimeError("macro_data_tool retrieve requires candidateId.")
+        raise RuntimeError("macro retrieval requires candidateId.")
     clean_query = str(query or "").strip()
     if not clean_query:
-        raise RuntimeError("macro_data_tool retrieve requires query.")
+        raise RuntimeError("macro retrieval requires query.")
 
     _get_macro_catalog_connection()
     selected_entry = _CATALOG_ENTRY_BY_ID.get(clean_candidate_id)
@@ -1998,20 +1993,19 @@ def retrieve_macro_candidate(
     start_year = retrieval_inputs["start_year"]
     end_year = retrieval_inputs["end_year"]
     all_countries = retrieval_inputs["all_countries"]
-    concept = dict(selected_entry.concept)
     provider_key = selected_entry.provider_key
     provider_config = dict(selected_entry.provider_config)
 
     if provider_key == "worldbank":
-        result = _fetch_world_bank(clean_query, concept, provider_config, countries, start_year, end_year, all_countries=all_countries)
+        result = _fetch_world_bank(clean_query, selected_entry, provider_config, countries, start_year, end_year, all_countries=all_countries)
     elif provider_key == "imf":
-        result = _fetch_imf(clean_query, concept, provider_config, countries, start_year, end_year, all_countries=all_countries)
+        result = _fetch_imf(clean_query, selected_entry, provider_config, countries, start_year, end_year, all_countries=all_countries)
     elif provider_key == "oecd":
-        result = _fetch_oecd(clean_query, concept, provider_config, countries, start_year, end_year, all_countries=all_countries)
+        result = _fetch_oecd(clean_query, selected_entry, provider_config, countries, start_year, end_year, all_countries=all_countries)
     elif provider_key == "comtrade":
         result = _fetch_comtrade(
             clean_query,
-            concept,
+            selected_entry,
             provider_config,
             reporter_codes=[str(item).strip() for item in (reporter_codes or []) if str(item).strip()],
             partner_codes=[str(item).strip() for item in (partner_codes or []) if str(item).strip()],

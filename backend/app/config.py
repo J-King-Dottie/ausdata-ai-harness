@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from functools import lru_cache
 from pathlib import Path
 
@@ -26,8 +27,7 @@ class Settings(BaseModel):
     comtrade_api_key: str | None = None
     macro_timeout_seconds: int = 120
     node_binary: str = "node"
-    python_binary: str = "python3"
-    mcp_bridge_path: Path = BASE_DIR / "build" / "mcpBridge.js"
+    python_binary: str = sys.executable
     runtime_dir: Path = BASE_DIR / "runtime"
     max_loops: int = 15
     openai_timeout_seconds: int = 180

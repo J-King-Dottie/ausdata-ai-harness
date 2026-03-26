@@ -47,6 +47,145 @@ function Resolve-CommandPath {
     throw "Could not find executable. Tried: $($Candidates -join ', ')"
 }
 
+function Resolve-CanonicalPath {
+    param(
+        [string]$Path
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return ""
+    }
+
+    try {
+        return (Resolve-Path -Path $Path -ErrorAction Stop).Path
+    }
+    catch {
+        return [System.IO.Path]::GetFullPath($Path)
+    }
+}
+
+function Test-PythonExecutable {
+    param(
+        [string]$Path
+    )
+
+    if (-not (Test-Path -Path $Path)) {
+        return $false
+    }
+
+    try {
+        & $Path -c "import sys; print(sys.executable)" *> $null
+        return $LASTEXITCODE -eq 0
+    }
+    catch {
+        return $false
+    }
+}
+
+function Test-WindowsVenvConfig {
+    param(
+        [string]$VenvRoot
+    )
+
+    $configPath = Join-Path $VenvRoot "pyvenv.cfg"
+    if (-not (Test-Path -Path $configPath)) {
+        return $false
+    }
+
+    try {
+        $config = Get-Content -Path $configPath -Raw -ErrorAction Stop
+    }
+    catch {
+        return $false
+    }
+
+    if ($config -match "(?im)^\s*home\s*=\s*/") {
+        return $false
+    }
+
+    if ($config -match "(?im)^\s*executable\s*=\s*/") {
+        return $false
+    }
+
+    return $true
+}
+
+function Resolve-BasePython {
+    param(
+        [string]$VenvRoot
+    )
+
+    $resolvedVenvRoot = Resolve-CanonicalPath -Path $VenvRoot
+
+    $pyLauncher = Get-Command "py.exe" -ErrorAction SilentlyContinue
+    if ($pyLauncher) {
+        try {
+            & $pyLauncher.Source -3 -c "import sys; print(sys.executable)" *> $null
+            if ($LASTEXITCODE -eq 0) {
+                return @{
+                    Path = $pyLauncher.Source
+                    Arguments = @("-3")
+                }
+            }
+        }
+        catch {
+        }
+    }
+
+    $pythonCommands = @(Get-Command "python.exe" -All -ErrorAction SilentlyContinue)
+    foreach ($command in $pythonCommands) {
+        $candidate = Resolve-CanonicalPath -Path $command.Source
+        if (-not $candidate) {
+            continue
+        }
+        if ($resolvedVenvRoot -and $candidate.ToLowerInvariant().StartsWith($resolvedVenvRoot.ToLowerInvariant())) {
+            continue
+        }
+        if (Test-PythonExecutable -Path $candidate) {
+            return @{
+                Path = $candidate
+                Arguments = @()
+            }
+        }
+    }
+
+    throw "Could not find a usable system Python interpreter. Install Python for Windows or the py launcher."
+}
+
+function Ensure-WindowsVenv {
+    param(
+        [string]$VenvRoot,
+        [hashtable]$BasePython
+    )
+
+    $venvPython = Join-Path $VenvRoot "Scripts\python.exe"
+    if ((Test-PythonExecutable -Path $venvPython) -and (Test-WindowsVenvConfig -VenvRoot $VenvRoot)) {
+        return $venvPython
+    }
+
+    if (Test-Path -Path $VenvRoot) {
+        Write-Host "Removing incompatible virtual environment at $VenvRoot"
+        Remove-Item -Path $VenvRoot -Recurse -Force
+    }
+
+    Write-Host "Creating Windows virtual environment at $VenvRoot"
+    & $BasePython.Path @($BasePython.Arguments + @("-m", "venv", $VenvRoot))
+
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to create virtual environment at $VenvRoot"
+    }
+
+    if (-not (Test-WindowsVenvConfig -VenvRoot $VenvRoot)) {
+        throw "Virtual environment created at $VenvRoot, but pyvenv.cfg is not Windows-compatible."
+    }
+
+    if (-not (Test-PythonExecutable -Path $venvPython)) {
+        throw "Virtual environment created, but $venvPython is still not executable."
+    }
+
+    return $venvPython
+}
+
 function Clear-ListeningPort {
     param(
         [int]$Port
@@ -93,17 +232,146 @@ function Clear-ListeningPort {
     }
 }
 
+function Get-WatchSignature {
+    param(
+        [string]$RepoRoot,
+        [string]$EnvFilePath
+    )
+
+    $roots = @(
+        (Join-Path $RepoRoot "backend"),
+        $EnvFilePath,
+        (Join-Path $RepoRoot "SOUL.md"),
+        (Join-Path $RepoRoot "AGENTS.md"),
+        (Join-Path $RepoRoot "build")
+    )
+
+    $latestTicks = 0L
+
+    foreach ($root in $roots) {
+        if (-not (Test-Path -Path $root)) {
+            continue
+        }
+
+        $item = Get-Item -LiteralPath $root -ErrorAction SilentlyContinue
+        if (-not $item) {
+            continue
+        }
+
+        if (-not $item.PSIsContainer) {
+            $ticks = $item.LastWriteTimeUtc.Ticks
+            if ($ticks -gt $latestTicks) {
+                $latestTicks = $ticks
+            }
+            continue
+        }
+
+        $files = Get-ChildItem -LiteralPath $root -Recurse -File -ErrorAction SilentlyContinue |
+            Where-Object {
+                $_.FullName -notmatch "[\\/]\.venv[\\/]" -and
+                $_.FullName -notmatch "[\\/]__pycache__[\\/]" -and
+                $_.FullName -notmatch "[\\/]runtime[\\/]" -and
+                $_.Extension -in @(".py", ".pyi", ".json", ".md", ".txt")
+            }
+
+        foreach ($file in $files) {
+            $ticks = $file.LastWriteTimeUtc.Ticks
+            if ($ticks -gt $latestTicks) {
+                $latestTicks = $ticks
+            }
+        }
+    }
+
+    return $latestTicks
+}
+
+function Start-BackendProcess {
+    param(
+        [string]$PythonExe,
+        [string]$RepoRoot
+    )
+
+    return Start-Process `
+        -FilePath $PythonExe `
+        -ArgumentList @("-u", "-m", "backend.app.serve", "--host", "127.0.0.1", "--port", "5000") `
+        -WorkingDirectory $RepoRoot `
+        -NoNewWindow `
+        -PassThru
+}
+
+function Stop-BackendProcess {
+    param(
+        [System.Diagnostics.Process]$Process
+    )
+
+    if (-not $Process) {
+        return
+    }
+
+    try {
+        if (-not $Process.HasExited) {
+            Stop-Process -Id $Process.Id -Force -ErrorAction SilentlyContinue
+            $Process.WaitForExit(5000) | Out-Null
+        }
+    }
+    catch {
+    }
+}
+
+function Invoke-BackendReloadLoop {
+    param(
+        [string]$PythonExe,
+        [string]$RepoRoot,
+        [string]$EnvFilePath
+    )
+
+    $backendProcess = $null
+    $lastSignature = Get-WatchSignature -RepoRoot $RepoRoot -EnvFilePath $EnvFilePath
+
+    try {
+        Write-Host "Starting backend with auto-reload on http://127.0.0.1:5000 in this terminal"
+        $backendProcess = Start-BackendProcess -PythonExe $PythonExe -RepoRoot $RepoRoot
+
+        while ($true) {
+            Start-Sleep -Milliseconds 800
+
+            $currentSignature = Get-WatchSignature -RepoRoot $RepoRoot -EnvFilePath $EnvFilePath
+            if ($currentSignature -ne $lastSignature) {
+                $lastSignature = $currentSignature
+                Write-Host "Backend change detected. Restarting..."
+                Stop-BackendProcess -Process $backendProcess
+                Clear-ListeningPort -Port 5000
+                Start-Sleep -Milliseconds 200
+                $backendProcess = Start-BackendProcess -PythonExe $PythonExe -RepoRoot $RepoRoot
+                continue
+            }
+
+            if ($backendProcess -and $backendProcess.HasExited) {
+                Start-Sleep -Milliseconds 300
+                $currentSignature = Get-WatchSignature -RepoRoot $RepoRoot -EnvFilePath $EnvFilePath
+                if ($currentSignature -ne $lastSignature) {
+                    $lastSignature = $currentSignature
+                    Write-Host "Backend change detected after exit. Restarting..."
+                    Clear-ListeningPort -Port 5000
+                    $backendProcess = Start-BackendProcess -PythonExe $PythonExe -RepoRoot $RepoRoot
+                    continue
+                }
+            }
+        }
+    }
+    finally {
+        Stop-BackendProcess -Process $backendProcess
+    }
+}
+
 Import-DotEnv -Path $EnvFile
 
 $RepoRoot = $PSScriptRoot
+$EnvFilePath = Resolve-CanonicalPath -Path (Join-Path $RepoRoot $EnvFile)
 $FrontendRoot = Join-Path $RepoRoot "frontend"
-$VenvPython = Join-Path $RepoRoot ".venv\Scripts\python.exe"
-
-if (Test-Path -Path $VenvPython) {
-    $PythonExe = $VenvPython
-} else {
-    $PythonExe = Resolve-CommandPath @("py.exe", "python.exe")
-}
+$VenvRoot = Join-Path $RepoRoot ".venv"
+$BasePythonExe = Resolve-BasePython -VenvRoot $VenvRoot
+$PythonExe = Ensure-WindowsVenv -VenvRoot $VenvRoot -BasePython $BasePythonExe
 
 $NpmExe = Resolve-CommandPath @(
     "npm.cmd",
@@ -126,11 +394,9 @@ if (-not $SkipInstall) {
 Clear-ListeningPort -Port 5000
 Clear-ListeningPort -Port 3000
 
-$reloadArgs = @()
 $backendMode = "without reload"
 if ($Reload) {
-    $reloadArgs = @("--reload")
-    $backendMode = "with reload"
+    $backendMode = "with auto-reload"
 }
 
 $url = "http://127.0.0.1:3000"
@@ -154,7 +420,12 @@ Write-Host "Starting backend $backendMode on http://127.0.0.1:5000 in this termi
 [Environment]::SetEnvironmentVariable("PYTHONUNBUFFERED", "1", "Process")
 
 try {
-    & $PythonExe -u -m backend.app.serve --host 127.0.0.1 --port 5000 @reloadArgs
+    if ($Reload) {
+        Invoke-BackendReloadLoop -PythonExe $PythonExe -RepoRoot $RepoRoot -EnvFilePath $EnvFilePath
+    }
+    else {
+        & $PythonExe -u -m backend.app.serve --host 127.0.0.1 --port 5000
+    }
 }
 finally {
     if ($frontendProcess -and -not $frontendProcess.HasExited) {

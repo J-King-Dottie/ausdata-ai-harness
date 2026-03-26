@@ -9,6 +9,7 @@ const logger = winston.createLogger({
     transports: [
         new winston.transports.Console({
             level: 'debug',
+            stderrLevels: ['error', 'warn', 'info', 'http', 'verbose', 'debug', 'silly'],
             format: winston.format.combine(
                 winston.format.colorize(),
                 winston.format.timestamp(),

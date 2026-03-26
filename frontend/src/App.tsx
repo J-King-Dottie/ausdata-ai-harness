@@ -760,20 +760,11 @@ function simplifyStatusMessage(value: string) {
   if (/^Plan approved\./i.test(normalized)) {
     return "Continuing with the approved approach.";
   }
-  if (/^Retrieved and resolved /i.test(normalized)) {
-    return "Fetched the ABS data. Reviewing the results.";
-  }
-  if (/^Resolved ABS dataset /i.test(normalized)) {
-    return "Working through the ABS results.";
-  }
   if (/^Tool execution failed\./i.test(normalized)) {
     return "Adjusting the approach after a failed step.";
   }
   if (normalized.startsWith("{") || normalized.startsWith("[")) {
-    return "Fetched structured ABS output. Summarising it.";
-  }
-  if (normalized.length > 180) {
-    return "Working through the ABS results.";
+    return "Fetched structured output. Summarising it.";
   }
   return normalized;
 }
@@ -879,6 +870,13 @@ function renderRunCost(runCost?: RunCost) {
     return null;
   }
   const hoverParts = [
+    runCost.model ? `Model: ${runCost.model}` : "",
+    Number.isFinite(Number(runCost.input_tokens))
+      ? `Input: ${Math.round(Number(runCost.input_tokens)).toLocaleString()}`
+      : "",
+    Number.isFinite(Number(runCost.output_tokens))
+      ? `Output: ${Math.round(Number(runCost.output_tokens)).toLocaleString()}`
+      : "",
     Number.isFinite(aiCost) ? `Raw: ${formatUsd(aiCost * USD_TO_AUD_RATE)}` : "",
     Number.isFinite(surcharge) ? `10%: ${formatUsd(surcharge * USD_TO_AUD_RATE)}` : "",
     `Total: ${formatUsd(displayCost * USD_TO_AUD_RATE)}`,
@@ -931,11 +929,9 @@ function applyConversationSnapshot(
   assistantMessageId?: string,
   forceReplace = false
 ) {
-  const runStatus = String(payload.run_status ?? "").trim().toLowerCase();
   const mappedMessages = mapBackendMessages(payload.messages);
-  const restoredMessages = runStatus === "completed" ? mappedMessages : keepCompletedTurns(mappedMessages);
-  if (restoredMessages.length > 0 || forceReplace) {
-    setMessages(restoredMessages);
+  if (mappedMessages.length > 0 || forceReplace) {
+    setMessages(mappedMessages);
     return;
   }
   if (!assistantMessageId) {
@@ -1231,12 +1227,14 @@ function App() {
       return;
     }
 
-    const cancelActiveRun = () => {
-      if (!pendingRef.current) {
-        return;
-      }
+    const resetConversationOnExit = () => {
       const payload = JSON.stringify({ conversation_id: conversationId });
-      const url = `${API_BASE}/api/cancel`;
+      const url = `${API_BASE}/api/reset`;
+      try {
+        window.sessionStorage.removeItem(STORAGE_KEY);
+      } catch (storageError) {
+        console.error("Failed to clear saved session on exit", storageError);
+      }
       try {
         if (navigator.sendBeacon) {
           const blob = new Blob([payload], { type: "application/json" });
@@ -1244,7 +1242,7 @@ function App() {
           return;
         }
       } catch (cancelError) {
-        console.error("Failed to send cancellation beacon", cancelError);
+        console.error("Failed to send reset beacon", cancelError);
       }
 
       void fetch(url, {
@@ -1252,13 +1250,13 @@ function App() {
         headers: { "Content-Type": "application/json" },
         body: payload,
         keepalive: true,
-      }).catch((cancelError) => {
-        console.error("Failed to cancel active run", cancelError);
+      }).catch((resetError) => {
+        console.error("Failed to reset conversation on exit", resetError);
       });
     };
 
     const handlePageHide = () => {
-      cancelActiveRun();
+      resetConversationOnExit();
     };
 
     window.addEventListener("pagehide", handlePageHide);
@@ -1340,16 +1338,8 @@ function App() {
   }, [authReady, conversationId, session]);
 
   const resetConversation = async () => {
-    try {
-      await fetch(`${API_BASE}/api/reset`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ conversation_id: conversationId }),
-        keepalive: true,
-      });
-    } catch (resetError) {
-      console.error("Failed to reset conversation", resetError);
-    }
+    const previousConversationId = conversationId;
+    const nextConversationId = createConversationId();
 
     setMessages([]);
     setInput("");
@@ -1363,10 +1353,27 @@ function App() {
     lastProgressRef.current = "";
     queuedSubmitRef.current = false;
     hydratedConversationRef.current = "";
-    setConversationId(createConversationId());
+    setConversationId(nextConversationId);
     if (typeof window !== "undefined") {
-      window.sessionStorage.removeItem(STORAGE_KEY);
+      window.sessionStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({
+          conversationId: nextConversationId,
+          messages: [],
+          latestExportUrl: "",
+          latestExportStatus: "",
+        })
+      );
     }
+
+    void fetch(`${API_BASE}/api/reset`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ conversation_id: previousConversationId }),
+      keepalive: true,
+    }).catch((resetError) => {
+      console.error("Failed to reset conversation", resetError);
+    });
   };
 
   const handleLogin = async (event: FormEvent<HTMLFormElement>) => {

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
+import json
 import logging
 import secrets
 import sys
@@ -15,15 +16,18 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from openai import APIError, APIStatusError
 from pydantic import BaseModel, Field
 
-from .openai_service import (
+from .agents_service import (
     ConversationCancelled,
     cancel_conversation_processing,
+    clear_agent_session,
     generate_response,
     generate_latest_export,
     get_latest_export_artifact_path,
     reset_conversation_runtime,
+    sync_agent_session_from_state,
 )
 from .storage import ConversationStore
 
@@ -148,6 +152,50 @@ def _emit_runtime_log(message: str) -> None:
     print(line, flush=True)
 
 
+def _truncate_jsonable(value: object, length: int = 1000) -> str:
+    try:
+        text = json.dumps(value, ensure_ascii=False, sort_keys=True)
+    except Exception:
+        text = str(value)
+    text = text.replace("\n", " ").strip()
+    return text if len(text) <= length else text[: length - 1] + "…"
+
+
+def _openai_error_details(exc: BaseException) -> dict[str, object]:
+    details: dict[str, object] = {
+        "exception_type": exc.__class__.__name__,
+        "message": str(exc),
+    }
+    if not isinstance(exc, APIError):
+        return details
+
+    details["openai_error_type"] = getattr(exc, "type", None)
+    details["openai_error_code"] = getattr(exc, "code", None)
+    details["openai_error_param"] = getattr(exc, "param", None)
+
+    request = getattr(exc, "request", None)
+    if request is not None:
+        details["request_method"] = getattr(request, "method", None)
+        url = getattr(request, "url", None)
+        if url is not None:
+            details["request_url"] = str(url)
+
+    body = getattr(exc, "body", None)
+    if body is not None:
+        details["response_body"] = _truncate_jsonable(body)
+
+    if isinstance(exc, APIStatusError):
+        details["status_code"] = getattr(exc, "status_code", None)
+        details["request_id"] = getattr(exc, "request_id", None)
+        response = getattr(exc, "response", None)
+        if response is not None:
+            retry_after = getattr(response, "headers", {}).get("retry-after")
+            if retry_after:
+                details["retry_after"] = retry_after
+
+    return {key: value for key, value in details.items() if value not in (None, "", {})}
+
+
 def _filtered_messages(state) -> list[dict[str, str]]:
     return [
         message
@@ -175,20 +223,25 @@ def _snapshot_from_state(state) -> ConversationSnapshot:
     )
 
 
-def _normalize_stale_processing_state(state) -> bool:
+async def _normalize_stale_processing_state(state) -> bool:
     if str(state.run_status or "").strip() != "processing":
         return False
     active_run_id = str(state.active_run_id or "").strip()
     if active_run_id and state.conversation_id in _RUN_TASKS:
         return False
 
-    state.run_status = "completed" if _filtered_messages(state) else "idle"
+    _rollback_unfinished_run(state)
+    state.run_status = "cancelled" if _filtered_messages(state) else "idle"
     state.latest_progress = ""
-    state.latest_error = ""
+    state.latest_error = "Previous run was interrupted before completion."
     state.active_run_id = None
     state.active_run_message_count = None
     state.active_run_loop_count = None
     state.active_run_artifact_count = None
+    store.save(state)
+    await sync_agent_session_from_state(state.conversation_id, state)
+    _emit_runtime_log(f"Recovered stale processing run cid={state.conversation_id}")
+    logger.info("Recovered stale processing run cid=%s", state.conversation_id)
     return True
 
 
@@ -240,14 +293,18 @@ async def _run_generation_job(
             state.latest_error = "Conversation cancelled by user."
             state.active_run_id = None
             store.save(state)
+            await sync_agent_session_from_state(conversation_id, state)
     except Exception as exc:
         state = store.load(conversation_id)
         if state.active_run_id == run_id:
+            error_details = _openai_error_details(exc)
             logger.exception(
-                "Failed to generate response cid=%s error=%s",
+                "Failed to generate response cid=%s error=%s details=%s",
                 conversation_id,
                 exc,
+                _truncate_jsonable(error_details, 2000),
             )
+            _rollback_unfinished_run(state)
             state.run_status = "failed"
             state.latest_progress = ""
             state.latest_error = str(exc)
@@ -256,6 +313,7 @@ async def _run_generation_job(
             state.active_run_loop_count = None
             state.active_run_artifact_count = None
             store.save(state)
+            await sync_agent_session_from_state(conversation_id, state)
         else:
             logger.info(
                 "Ignoring late generation failure for stale run cid=%s run_id=%s error=%s",
@@ -317,8 +375,7 @@ async def chat(request: ChatRequest):
     )
 
     state = store.load(request.conversation_id)
-    if _normalize_stale_processing_state(state):
-        store.save(state)
+    await _normalize_stale_processing_state(state)
     if state.run_status == "processing":
         return ChatAcceptedResponse(
             conversation_id=request.conversation_id,
@@ -355,16 +412,14 @@ async def chat(request: ChatRequest):
 @app.get("/api/conversation/{conversation_id}", response_model=ConversationSnapshot)
 async def get_conversation(conversation_id: str):
     state = store.load(conversation_id)
-    if _normalize_stale_processing_state(state):
-        store.save(state)
+    await _normalize_stale_processing_state(state)
     return _snapshot_from_state(state)
 
 
 @app.get("/api/conversation/{conversation_id}/latest-export")
 async def get_latest_export(conversation_id: str):
     state = store.load(conversation_id)
-    if _normalize_stale_processing_state(state):
-        store.save(state)
+    await _normalize_stale_processing_state(state)
     path = get_latest_export_artifact_path(state)
     if path is None:
         raise HTTPException(status_code=404, detail="No export available.")
@@ -397,8 +452,7 @@ async def set_pending_message(request: PendingMessageRequest):
         raise HTTPException(status_code=400, detail="Pending message mode must be queued or steer.")
 
     state = store.load(request.conversation_id)
-    if _normalize_stale_processing_state(state):
-        store.save(state)
+    await _normalize_stale_processing_state(state)
     state.pending_user_message = message
     state.pending_user_mode = mode
     store.save(state)
@@ -417,8 +471,7 @@ async def set_pending_message(request: PendingMessageRequest):
 @app.post("/api/pending-message/consume")
 async def consume_pending_message(request: ResetRequest):
     state = store.load(request.conversation_id)
-    if _normalize_stale_processing_state(state):
-        store.save(state)
+    await _normalize_stale_processing_state(state)
     state.pending_user_message = ""
     state.pending_user_mode = ""
     store.save(state)
@@ -442,6 +495,7 @@ async def cancel(request: CancelRequest):
     state.latest_error = ""
     state.active_run_id = None
     store.save(state)
+    await sync_agent_session_from_state(request.conversation_id, state)
 
     _emit_runtime_log(f"Conversation cancelled cid={request.conversation_id}")
     logger.info("Conversation cancelled cid=%s", request.conversation_id)
@@ -459,6 +513,7 @@ async def reset(request: ResetRequest):
         export_task.cancel()
     store.clear(request.conversation_id)
     reset_conversation_runtime(request.conversation_id)
+    await clear_agent_session(request.conversation_id)
     _emit_runtime_log(f"Conversation cleared cid={request.conversation_id}")
     logger.info("Conversation cleared cid=%s", request.conversation_id)
     return {"status": "cleared"}

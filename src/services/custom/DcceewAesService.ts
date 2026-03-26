@@ -10,32 +10,16 @@ import { DataFlow, DataQueryOptions, DataStructureMetadata, ResolvedDataset } fr
 const execFileAsync = promisify(execFile);
 const DOWNLOAD_TIMEOUT_MS = 45000;
 const PARSE_TIMEOUT_MS = 120000;
-const PYTHON_EXECUTABLES = process.platform === 'win32'
+const DOWNLOAD_ATTEMPTS = 3;
+const DOWNLOAD_USER_AGENT = 'Mozilla/5.0';
+const ENV_PYTHON = String(process.env.NISABA_PYTHON_BINARY || "").trim();
+const DEFAULT_PYTHON_EXECUTABLES = process.platform === 'win32'
     ? [['python'], ['py', '-3'], ['python3']]
     : [['python3'], ['python']];
-const PYTHON_DOWNLOAD_SCRIPT = `
-import sys
-import time
-from pathlib import Path
-import requests
-
-url = sys.argv[1]
-out_path = Path(sys.argv[2])
-for attempt in range(1, 4):
-    try:
-        response = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=(20, 60))
-        response.raise_for_status()
-        payload = response.content
-        if len(payload) < 4 or payload[:2] != b'PK':
-            raise ValueError('Downloaded payload is not a valid XLSX file')
-        out_path.write_bytes(payload)
-        break
-    except Exception as exc:
-        last_error = exc
-        if attempt == 3:
-            raise
-        time.sleep(attempt)
-`;
+const PYTHON_EXECUTABLES = [
+    ...(ENV_PYTHON ? [[ENV_PYTHON]] : []),
+    ...DEFAULT_PYTHON_EXECUTABLES.filter((command) => !ENV_PYTHON || command[0] !== ENV_PYTHON),
+];
 
 interface CustomSheetGroup {
     id: string;
@@ -149,23 +133,20 @@ export class DcceewAesService {
         logger.info('Starting DCCEEW AES workbook download', {
             datasetId: flow.id,
             sourceUrl: flow.sourceUrl,
-            downloadMethod: 'python_requests_runtime_fetch',
+            downloadMethod: 'node_fetch_runtime_download',
         });
         try {
-            const result = await this.execPython([
-                '-c',
-                PYTHON_DOWNLOAD_SCRIPT,
-                flow.sourceUrl,
-                tmpPath,
-            ], DOWNLOAD_TIMEOUT_MS + 10000, 1024 * 1024);
+            const result = await this.fetchWorkbookToPath(flow.sourceUrl, tmpPath);
             const stats = await fs.stat(tmpPath);
             logger.info('Downloaded DCCEEW AES workbook', {
                 datasetId: flow.id,
                 sourceUrl: flow.sourceUrl,
                 tmpPath,
                 bytes: stats.size,
-                downloadMethod: 'python_requests_runtime_fetch',
-                pythonCommand: result.pythonCommand,
+                downloadMethod: 'node_fetch_runtime_download',
+                attempt: result.attempt,
+                elapsedMs: result.elapsedMs,
+                finalUrl: result.finalUrl,
             });
             return tmpPath;
         } catch (error) {
@@ -173,13 +154,63 @@ export class DcceewAesService {
             logger.error('DCCEEW AES workbook download failed', {
                 datasetId: flow.id,
                 sourceUrl: flow.sourceUrl,
-                downloadMethod: 'python_requests_runtime_fetch',
+                downloadMethod: 'node_fetch_runtime_download',
                 error: this.serializeExecError(error),
             });
             throw new Error(
                 `Failed to download live DCCEEW workbook for ${flow.id} from ${flow.sourceUrl}: ${this.formatExecError(error)}`,
             );
         }
+    }
+
+    private async fetchWorkbookToPath(
+        sourceUrl: string,
+        outPath: string,
+    ): Promise<{ attempt: number; elapsedMs: number; finalUrl: string }> {
+        let lastError: unknown;
+        for (let attempt = 1; attempt <= DOWNLOAD_ATTEMPTS; attempt += 1) {
+            const startedAt = Date.now();
+            try {
+                const controller = new AbortController();
+                const timeout = setTimeout(() => controller.abort(), DOWNLOAD_TIMEOUT_MS);
+                try {
+                    const response = await fetch(sourceUrl, {
+                        headers: {
+                            'User-Agent': DOWNLOAD_USER_AGENT,
+                        },
+                        redirect: 'follow',
+                        signal: controller.signal,
+                    });
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status} ${response.statusText}`);
+                    }
+                    const buffer = Buffer.from(await response.arrayBuffer());
+                    if (buffer.length < 4 || buffer.subarray(0, 2).toString('binary') !== 'PK') {
+                        throw new Error('Downloaded payload is not a valid XLSX file');
+                    }
+                    await fs.writeFile(outPath, buffer);
+                    return {
+                        attempt,
+                        elapsedMs: Date.now() - startedAt,
+                        finalUrl: response.url || sourceUrl,
+                    };
+                } finally {
+                    clearTimeout(timeout);
+                }
+            } catch (error) {
+                lastError = error;
+                logger.warn('DCCEEW workbook download attempt failed', {
+                    sourceUrl,
+                    outPath,
+                    attempt,
+                    error: this.serializeExecError(error),
+                });
+                if (attempt < DOWNLOAD_ATTEMPTS) {
+                    await new Promise((resolve) => setTimeout(resolve, attempt * 1000));
+                }
+            }
+        }
+        throw lastError instanceof Error ? lastError : new Error(String(lastError));
     }
 
     private async safeUnlink(filePath: string): Promise<void> {
