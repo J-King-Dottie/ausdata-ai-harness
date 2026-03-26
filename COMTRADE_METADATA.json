@@ -23,6 +23,10 @@
       "label": "Algeria"
     },
     {
+      "code": "0",
+      "label": "All partners (World total)"
+    },
+    {
       "code": "20",
       "label": "Andorra"
     },
@@ -1423,6 +1427,10 @@
     {
       "code": "99",
       "label": "99 - Commodities not specified according to kind"
+    },
+    {
+      "code": "TOTAL",
+      "label": "TOTAL - All products"
     }
   ],
   "hs_4digit": [
@@ -7755,6 +7763,10 @@
       "code": "9999",
       "label": "9999 - Commodities not specified according to kind",
       "parent": "99"
+    },
+    {
+      "code": "TOTAL",
+      "label": "TOTAL - All products"
     }
   ]
 }

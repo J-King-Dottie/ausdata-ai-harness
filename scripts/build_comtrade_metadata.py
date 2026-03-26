@@ -35,6 +35,11 @@ def _normalize_area_codes(items: List[Dict[str, Any]], *, code_key: str, name_ke
         if not code or not label:
             continue
         normalized.append({"code": code, "label": label})
+    normalized.append({"code": "0", "label": "All partners (World total)"})
+    deduped: Dict[str, Dict[str, Any]] = {}
+    for item in normalized:
+        deduped[str(item["code"])] = item
+    normalized = list(deduped.values())
     normalized.sort(key=lambda item: (item["label"].lower(), item["code"]))
     return normalized
 
@@ -57,6 +62,11 @@ def _normalize_hs_codes(items: List[Dict[str, Any]], level: int) -> List[Dict[st
         if level == 4:
             entry["parent"] = str(item.get("parent") or "").strip()
         normalized.append(entry)
+    normalized.append({"code": "TOTAL", "label": "TOTAL - All products"})
+    deduped: Dict[str, Dict[str, Any]] = {}
+    for item in normalized:
+        deduped[str(item["code"])] = item
+    normalized = list(deduped.values())
     normalized.sort(key=lambda item: item["code"])
     return normalized
 

@@ -751,6 +751,17 @@ def _comtrade_matches(query: str, options: List[Dict[str, Any]], *, limit: int =
     return [item for _, item in ranked[:limit]]
 
 
+def _inject_comtrade_option(
+    options: List[Dict[str, Any]],
+    injected: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    injected_code = str(injected.get("code") or "").strip()
+    if not injected_code:
+        return list(options)
+    deduped = [item for item in options if str(item.get("code") or "").strip() != injected_code]
+    return [dict(injected), *deduped]
+
+
 def _comtrade_default_flow(query: str) -> str:
     normalized_query = f" {_normalize_text(query)} "
     if " import " in normalized_query or " imports " in normalized_query:
@@ -967,9 +978,18 @@ def _build_comtrade_metadata_payload(query: str, selected_entry: MacroCatalogEnt
     hs_2digit = _comtrade_dimension("hs_2digit")
     hs_4digit = _comtrade_dimension("hs_4digit")
 
-    partner_options = [{"code": "0", "label": "All partners (World total)"}] + countries
-    matched_hs_2digit = _comtrade_matches(query, hs_2digit, limit=25)
-    matched_hs_4digit = _comtrade_matches(query, hs_4digit, limit=100)
+    partner_options = _inject_comtrade_option(
+        countries,
+        {"code": "0", "label": "All partners (World total)"},
+    )
+    matched_hs_2digit = _inject_comtrade_option(
+        _comtrade_matches(query, hs_2digit, limit=25),
+        {"code": "TOTAL", "label": "TOTAL - All products"},
+    )
+    matched_hs_4digit = _inject_comtrade_option(
+        _comtrade_matches(query, hs_4digit, limit=100),
+        {"code": "TOTAL", "label": "TOTAL - All products"},
+    )
 
     return {
         "provider": COMTRADE_PROVIDER,
