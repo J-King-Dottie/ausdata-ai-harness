@@ -19,10 +19,11 @@ from agents import (
     CodeInterpreterTool,
     ModelSettings,
     ModelRetrySettings,
+    RetryDecision,
+    RetryPolicyContext,
     Runner,
     SQLiteSession,
     function_tool,
-    retry_policies,
     set_default_openai_key,
 )
 from agents.run_context import RunContextWrapper
@@ -341,6 +342,50 @@ def report_progress(
     return {"ok": True, "message": normalized}
 
 
+_TRANSIENT_MODEL_STATUSES = {408, 409, 429, 500, 502, 503, 504}
+_RETRY_DELAY_BY_ATTEMPT = {
+    1: 0.5,
+    2: 1.5,
+    3: 5.0,
+    4: 12.0,
+}
+
+
+def _model_retry_policy(context: RetryPolicyContext) -> bool | RetryDecision:
+    advice = context.provider_advice
+    if advice is not None and advice.suggested is False:
+        return RetryDecision(retry=False, reason=advice.reason)
+
+    normalized = context.normalized
+    status_code = normalized.status_code
+    should_retry = (
+        normalized.is_network_error
+        or normalized.is_timeout
+        or (status_code in _TRANSIENT_MODEL_STATUSES if status_code is not None else False)
+        or bool(advice and advice.suggested)
+    )
+    if not should_retry:
+        return False
+
+    delay = _RETRY_DELAY_BY_ATTEMPT.get(context.attempt)
+    provider_delay = advice.retry_after if advice is not None else normalized.retry_after
+    if provider_delay is not None:
+        delay = max(delay or 0.0, float(provider_delay))
+
+    logger.warning(
+        "Model retry scheduled attempt=%s/%s status=%s network=%s timeout=%s delay_s=%s request_id=%s reason=%s",
+        context.attempt,
+        context.max_retries,
+        status_code,
+        normalized.is_network_error,
+        normalized.is_timeout,
+        delay,
+        normalized.request_id,
+        advice.reason if advice is not None else normalized.message,
+    )
+    return RetryDecision(retry=True, delay=delay)
+
+
 def _build_agent(code_container_id: str) -> Agent[Any]:
     return Agent(
         name="Nisaba",
@@ -358,11 +403,11 @@ def _build_agent(code_container_id: str) -> Agent[Any]:
         model_settings=ModelSettings(
             reasoning={"effort": settings.openai_reasoning_effort},
             retry=ModelRetrySettings(
-                max_retries=2,
-                policy=retry_policies.provider_suggested(),
+                max_retries=4,
+                policy=_model_retry_policy,
                 backoff={
                     "initial_delay": 0.5,
-                    "max_delay": 2.0,
+                    "max_delay": 12.0,
                     "multiplier": 2.0,
                     "jitter": True,
                 },
