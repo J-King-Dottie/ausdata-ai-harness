@@ -55,7 +55,6 @@ const EXAMPLE_PROMPTS = [
   "Can you show me Australian youth unemployment rate by gender over time?",
   "Can you show me Australian solar energy as a share of total energy production over time?",
   "Show me Australia's wine exports to China versus the rest of the world over the last 10 years?",
-  "Can you show me a time series of Australia's birth rate per woman compared to India, China, Japan, and America?",
 ];
 
 function createConversationId() {
