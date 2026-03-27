@@ -1,14 +1,14 @@
-# Nisaba
+## Nisaba
 
-Nisaba is an AI data harness built to become the best expert system for Australian public data.
+Nisaba is an open source data harness built around two MCP servers: one for domestic Australian data and one for global macro data.
 
-Its purpose is to help people ask detailed questions about Australia, retrieve the right public data, run the numbers, and explain what the data actually says.
+It builds on existing open source projects including [mcp-server-abs](https://github.com/seansoreilly/mcp-server-abs) and [openecon-data](https://github.com/hanlulong/openecon-data). We continue to expand it. 
 
-Nisaba started with ABS at the core, and ABS remains central. But the project is no longer ABS-only. The direction now is broader: combine ABS with other useful public Australian data sources over time, so the harness becomes more nuanced, more detailed, and more useful than any single-source Australian data assistant.
+The goal is to make discovery, retrieval, and analysis across a wide range of public data sources as easy as possible. Over time we want to consolidate that into a single integrated MCP with broad, deep coverage.
 
-Global macro sources such as the OECD, World Bank, IMF, and UN Comtrade are included for comparison and context. They matter, but they are not the point. The point is depth on Australia.
+If you are technical, clone the repo, add your API key, and run it locally. If you are not, we have built a simple hosted web app on top of the MCP servers — log in, ask a question, get a grounded answer. That version is not free; we pass through the raw AI cost and add 10% to cover hosting. The repo is fully open source either way.
 
-Current source summary:
+Here is what is currently plugged in:
 
 | Route | Provider | Datasets |
 | --- | --- | ---: |
@@ -20,57 +20,33 @@ Current source summary:
 | Macro | IMF | 132 |
 | Macro | UN Comtrade | 1 |
 
-## Why This Exists
+This product is heavily vibecoded and tested by outcomes rather than code review. It does not work perfectly every time, but it works well most of the time.
 
-MCP servers plugged into agentic frameworks like Claude Code or Codex are genuinely powerful. If you are technical, willing to wire tools together, comfortable with API keys, and happy to prompt an agent directly, you can do very sophisticated work that way.
-
-Most people are not interested in doing that. Most people do not want to choose models, manage API keys, understand MCP, or hand-build a retrieval workflow just to answer an economic question.
-
-Nisaba is meant to fill that gap.
-
-Log in. Ask a question. Get a grounded answer.
-
-That is the product goal.
-
-We will host a version of Nisaba for people who want that simplicity. That hosted version is not free: you pay per use. The pricing model is straightforward. We pass through the underlying AI cost and add a 10% margin to cover hosting and maintenance. This is just the practical cost of running a hosted webapp.
-
-If you do not want to pay, download the repo and run it locally with your own API.
-
-## Product Direction
-
-Nisaba is being built as an expert Australian data harness with deep coverage and growing support for Australian publically available data sources.
-
-We want Nisaba to become the strongest integrated AI harness for Australian data in the world. We believe only open source can achieve this.
-
-If you find Nisaba useful, want a new source integrated, or want to improve the harness, submit a pull request.
-
-## What It Does
-
-Under the hood, Nisaba:
-
-1. routes a question to the right retrieval path
-2. shortlists candidate datasets or indicators
-3. retrieves structured data from the selected source
-4. inspects and narrows the returned data
-5. runs calculations in a Python sandbox where needed
-6. returns grounded answers with charts, tables, and source references
+We want people to suggest additional integrations so the system can grow into the strongest open source for AI-driven and Australian focused data analysis in the world.
 
 Produced by [Dottie AI Studio](https://dottieaistudio.com.au/).
 
 ## Requirements
 
 - Python
-- Node.js + npm
-- `OPENAI_API_KEY` in `.env`
+- Node.js and npm
+- `OPENAI_API_KEY` set in `.env`
 
 Example `.env`:
 
 ```env
 OPENAI_API_KEY=your_key_here
-COMTRADE_API_KEY=optional_key_here
 ```
 
-Refresh the local UN Comtrade metadata bundle when needed:
+Some catalog and metadata assets are built snapshots and need to be refreshed manually when needed:
+
+- Refresh the macro catalog:
+
+```bash
+python3 scripts/build_macro_catalog.py
+```
+
+- Refresh the local UN Comtrade metadata bundle:
 
 ```bash
 python3 scripts/build_comtrade_metadata.py
@@ -78,10 +54,10 @@ python3 scripts/build_comtrade_metadata.py
 
 ## Local Dev
 
-- frontend dev server with HMR on `http://127.0.0.1:3000`
-- backend on `http://127.0.0.1:5000`
+- Frontend dev server with HMR: `http://127.0.0.1:3000`
+- Backend: `http://127.0.0.1:5000`
 
-Run from the repo root in PowerShell:
+Run from the repo root in PowerShell.
 
 First run:
 
