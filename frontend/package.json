@@ -4,13 +4,13 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "preinstall": "node ../scripts/ensure_frontend_no_local_root_dep.mjs",
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.86.0",
-    "abs-mcp-server": "file:..",
     "echarts": "^5.6.0",
     "echarts-for-react": "^3.0.2",
     "react": "^19.1.1",

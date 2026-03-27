@@ -24,6 +24,41 @@ Important:
 - it is the broader Australian domestic route
 - custom Australian sources should fit into the same domestic shortlist and retrieval flow where possible
 
+## Runtime shape
+
+The repo is now Agent SDK based.
+
+- main orchestration lives in:
+  - `/mnt/c/Users/jorda/OneDrive/Documents/Dottie/abs-mcp/backend/app/agents_service.py`
+- the web backend lives in:
+  - `/mnt/c/Users/jorda/OneDrive/Documents/Dottie/abs-mcp/backend/app/main.py`
+- the agent uses the OpenAI Agents SDK with a persisted SQLite session per conversation
+- the app still keeps its own visible conversation state for UI/history/export purposes
+- when runs fail, are cancelled, or are reset, the backend explicitly resyncs or clears the Agent SDK session so hidden SDK history does not drift from visible app history
+
+Current MCP shape:
+
+- domestic MCP
+  - Node/TypeScript stdio MCP server
+  - entrypoint:
+    - `/mnt/c/Users/jorda/OneDrive/Documents/Dottie/abs-mcp/src/index.ts`
+  - built output:
+    - `/mnt/c/Users/jorda/OneDrive/Documents/Dottie/abs-mcp/build/index.js`
+- macro MCP
+  - Python FastMCP stdio server
+  - entrypoint:
+    - `/mnt/c/Users/jorda/OneDrive/Documents/Dottie/abs-mcp/backend/app/macro_mcp_server.py`
+
+There is now a repo-level MCP config at:
+
+- `/mnt/c/Users/jorda/OneDrive/Documents/Dottie/abs-mcp/.mcp.json`
+
+The direction is increasingly MCP-first:
+
+- reusable retrieval guidance should live in MCP server instructions and tool descriptions where practical
+- app-only guidance such as progress updates, response style, and hosted UX behavior should stay in the Nisaba system prompt
+- the web app should be treated as a layer on top of the MCP servers, not the only way the system can be used
+
 ## Australian domestic architecture
 
 Australian domestic retrieval currently works like this:
@@ -73,6 +108,7 @@ For custom sources:
 For ABS-backed domestic datasets:
 
 - metadata-first retrieval is still the default
+- metadata is fetched live when needed and then transformed into a curated MCP-facing view
 - metadata determines the valid anchor and wildcard shape
 - retrieval should follow the observed dataset structure, not guessed keys
 
@@ -114,6 +150,29 @@ At a high level, both domestic and macro retrieval use a local catalog plus AI-g
   - runs SQLite FTS over `MACRO_CATALOG_FULL.json`
   - matches fields including `provider_name`, `concept_label`, `indicator_label`, `description`, and `search_text`
   - uses heavier reranking to improve provider and indicator relevance
+  - the catalog is a built snapshot, not a live provider catalog
+
+Macro metadata behavior is provider-specific:
+
+- World Bank
+  - no separate metadata step after shortlist selection
+- IMF
+  - no separate metadata step after shortlist selection
+- OECD
+  - no separate metadata step after shortlist selection
+- UN Comtrade
+  - has a separate metadata step after shortlist selection
+  - metadata comes from saved local file:
+    - `/mnt/c/Users/jorda/OneDrive/Documents/Dottie/abs-mcp/COMTRADE_METADATA.json`
+  - that metadata can be rebuilt manually with:
+    - `/mnt/c/Users/jorda/OneDrive/Documents/Dottie/abs-mcp/scripts/build_comtrade_metadata.py`
+
+Macro catalog refresh:
+
+- the main macro catalog is a saved built file:
+  - `/mnt/c/Users/jorda/OneDrive/Documents/Dottie/abs-mcp/MACRO_CATALOG_FULL.json`
+- it can be rebuilt manually with:
+  - `/mnt/c/Users/jorda/OneDrive/Documents/Dottie/abs-mcp/scripts/build_macro_catalog.py`
 
 The practical pattern is:
 
@@ -131,6 +190,14 @@ That means:
 - verify live retrieval against the real public source
 - verify the backend can actually execute the retrieval path you are adding
 - keep source descriptions grounded in what is actually retrievable
+
+Operational note:
+
+- if a change affects MCP usage, check both:
+  - the app/harness path
+  - the direct MCP path
+- if a change affects frontend-only build behavior, make sure the frontend does not accidentally depend on the repo root package
+- the frontend now includes a guard against reintroducing a local `file:..` dependency on the root MCP package
 
 ## Product identity notes
 
