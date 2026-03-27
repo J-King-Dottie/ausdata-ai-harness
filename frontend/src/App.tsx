@@ -52,6 +52,10 @@ const MAX_POLL_FAILURES = 20;
 const USD_TO_AUD_RATE = 1.398;
 const EXAMPLE_PROMPTS = [
   "What data do you have access to?",
+  "Can you show me Australian youth unemployment rate by gender over time?",
+  "Can you show me Australian solar energy as a share of total energy production over time?",
+  "Show me Australia's wine exports to China versus the rest of the world over the last 10 years?",
+  "Can you show me a time series of Australia's birth rate per woman compared to India, China, Japan, and America?",
 ];
 
 function createConversationId() {
@@ -998,11 +1002,13 @@ function ProductTitle() {
                   <p>
                     This system does the same. Designed for Australian analysts,
                     it combines detailed domestic data with global macro
-                    sources including UN Comtrade trade data.
+                    sources.
                   </p>
                   <p>
-                    Ask anything and Nisaba will find the numbers and explain
-                    what they mean.
+                    Nisaba is not a general chatbot. It is a data discovery,
+                    retrieval, and analysis workflow. Use Claude or ChatGPT for
+                    broad research. Use Nisaba when you want actual data, from
+                    the actual source.
                   </p>
                   <p>
                     Produced by{" "}
@@ -1789,7 +1795,7 @@ function App() {
               <div className="empty-state-note">
                 <div className="empty-state-note-group">
                   <p>Designed for detailed Australian analysis and global macro comparison.</p>
-                  <p aria-hidden="true">&nbsp;</p>
+                  <p>Use Nisaba when you want actual data, from the actual source.</p>
                   <p>Performs best on targeted questions. Break complex queries down.</p>
                 </div>
               </div>

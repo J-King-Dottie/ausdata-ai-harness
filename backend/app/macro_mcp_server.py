@@ -226,16 +226,19 @@ def _store_macro_artifact(payload: Dict[str, Any], label: str) -> Dict[str, Any]
 server = FastMCP(
     name="nisaba-macro-mcp",
     instructions=(
-        "Access global macroeconomic and trade data for Nisaba. "
-        "Use macro_search_catalog to shortlist candidates, macro_get_metadata to inspect a candidate, "
-        "and macro_retrieve to fetch structured data from the selected provider."
+        "Access global macroeconomic and trade data for Nisaba. Preferred workflow: use "
+        "macro_search_catalog to shortlist candidates, use macro_get_metadata when the selected "
+        "provider requires an extra metadata step, use macro_retrieve to fetch the selected series, "
+        "then inspect the stored artifact and narrow it to the exact comparable slice before analysis. "
+        "Do not invent provider ids, countries, flows, or product codes. For comparisons, use one "
+        "comparable definition and one frequency before charting."
     ),
 )
 
 
 @server.tool()
 def macro_search_catalog(query: str, limit: int = 12) -> Dict[str, Any]:
-    """Search the macro catalog and return a ranked shortlist of candidate indicators."""
+    """Search the macro catalog and return a ranked shortlist of candidate indicators. Use this first unless the target indicator is already clear."""
     started_at = time.perf_counter()
     clean_limit = max(1, min(int(limit or 12), 40))
     logger.info(
@@ -265,7 +268,7 @@ def macro_search_catalog(query: str, limit: int = 12) -> Dict[str, Any]:
 
 @server.tool()
 def macro_get_metadata(candidateId: str, query: str) -> Dict[str, Any]:
-    """Fetch metadata for a shortlisted macro candidate using its candidateId and the original query."""
+    """Fetch metadata for a shortlisted macro candidate using its candidateId and the original query. In this harness, this is mainly for providers like Comtrade that need an extra selection step before retrieval."""
     started_at = time.perf_counter()
     logger.info(
         "%stool=macro_get_metadata event=start candidateId=%r query=%r",
@@ -307,7 +310,7 @@ def macro_retrieve(
     frequencyCode: str = "",
     hsCodes: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
-    """Retrieve macro data either from a selected candidateId or by running the best direct match for the query."""
+    """Retrieve macro data either from a selected candidateId or by running the best direct match for the query. After retrieval, prefer artifact inspection and narrowing over repeating broad retrievals."""
     started_at = time.perf_counter()
     clean_candidate_id = str(candidateId or "").strip()
     logger.info(
@@ -382,7 +385,7 @@ def macro_retrieve(
 
 @server.tool()
 def macro_inspect_artifact(artifactId: str = "") -> Dict[str, Any]:
-    """Inspect a stored macro retrieval artifact and return a compact structural summary plus preview rows."""
+    """Inspect a stored macro retrieval artifact and return a compact structural summary plus preview rows. Use this before analysis to decide whether the artifact is already narrow enough or still needs narrowing."""
     started_at = time.perf_counter()
     clean_artifact_id = str(artifactId or "").strip() or (_latest_macro_artifact_id() or "")
     logger.info(
@@ -430,7 +433,7 @@ def macro_narrow_artifact(
     seriesKeyContains: str = "",
     maxSeries: int = 12,
 ) -> Dict[str, Any]:
-    """Create a narrowed macro artifact by filtering the stored artifact down to the minimum slice needed."""
+    """Create a narrowed macro artifact by filtering the stored artifact down to the minimum slice needed. Use this when the retrieved artifact still contains multiple countries, frequencies, or series variants beyond the requested comparison."""
     started_at = time.perf_counter()
     clean_artifact_id = str(artifactId or "").strip() or (_latest_macro_artifact_id() or "")
     logger.info(

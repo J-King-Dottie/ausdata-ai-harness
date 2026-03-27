@@ -682,7 +682,8 @@ const server = new Server(
   {
     name: "nisaba-domestic-mcp",
     version: "0.1.0",
-    description: "Access Australian domestic public data, including ABS and curated custom Australian sources"
+    description:
+      "Access Australian domestic public data, including ABS and curated custom Australian sources. Preferred workflow: shortlist the dataset, inspect metadata when needed, retrieve, inspect the stored artifact, narrow only if needed, then analyze."
   },
   {
     capabilities: {
@@ -699,7 +700,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     tools: [
       {
         name: "search_catalog",
-        description: "Search the merged Australian domestic catalog across ABS and curated custom Australian sources",
+        description:
+          "Search the merged Australian domestic catalog across ABS and curated custom Australian sources. Use this first unless the dataset is already clear.",
         inputSchema: {
           type: "object",
           properties: {
@@ -720,7 +722,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "list_dataflows",
-        description: "List available domestic dataflows with identifiers and descriptions",
+        description:
+          "List available domestic dataflows with identifiers and descriptions. Prefer search_catalog when the user is asking for a dataset by topic rather than by known id.",
         inputSchema: {
           type: "object",
           properties: {
@@ -741,7 +744,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "get_metadata",
-        description: "Fetch structural metadata for a domestic dataset, using source-specific adapters where needed. For ABS datasets, do this before retrieve so you can choose one anchor and the server can construct the wildcard retrieval correctly.",
+        description:
+          "Fetch structural metadata for a domestic dataset, using source-specific adapters where needed. For ABS datasets, do this before retrieve so you can choose one anchor from anchor_candidates and let the server construct the wildcard retrieval correctly.",
         inputSchema: {
           type: "object",
           required: ["datasetId"],
@@ -815,7 +819,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "retrieve",
-        description: "Retrieve a domestic dataset, using the correct source adapter behind one domestic tool contract. For ABS datasets, always do this only after get_metadata and use one metadata-derived anchor so the server constructs the wildcard retrieval. ABS retrieve does not accept ad hoc dataKey input.",
+        description:
+          "Retrieve a domestic dataset using the correct source adapter behind one domestic tool contract. For ABS datasets, do this only after get_metadata, use exactly one metadata-derived anchor, and do not invent ad hoc ABS dataKey input.",
         inputSchema: {
           type: "object",
           required: ["datasetId"],
@@ -866,7 +871,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "inspect_artifact",
-        description: "Inspect a stored domestic retrieval artifact and return a compact structural summary plus preview rows, including size information that helps decide whether to use it directly or narrow it first.",
+        description:
+          "Inspect a stored domestic retrieval artifact and return a compact structural summary plus preview rows, including size information that helps decide whether to use it directly or narrow it first. Prefer inspect before analysis.",
         inputSchema: {
           type: "object",
           properties: {
@@ -879,7 +885,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "narrow_artifact",
-        description: "Create a narrowed domestic artifact by filtering the stored artifact down to the minimum slice needed. For supply-use, input-output, or other matrix-style tables, use this to isolate one correct full matrix or one metric/anchor, not to trim inside the matrix.",
+        description:
+          "Create a narrowed domestic artifact by filtering the stored artifact down to the minimum slice needed. Use this only when inspect shows the artifact is still too broad. For supply-use, input-output, or other matrix-style tables, isolate one correct full matrix or one metric/anchor, not partial rows or columns inside the matrix.",
         inputSchema: {
           type: "object",
           properties: {

@@ -255,20 +255,12 @@ Tooling:
 - For charting or any answer that depends on exact numeric comparisons, use the python tool on the best available analysis-ready artifact before writing the final response.
 
 Retrieval rules:
-- For domestic data, search the catalog first unless the dataset is already clear.
-- For ABS datasets, follow this flow: shortlist the dataset, inspect metadata when needed to determine retrieval, retrieve the data, inspect the artifact, narrow only if needed, then analyze.
-- For curated custom domestic sources, metadata may not be necessary; if retrieval works directly, do not force an artificial metadata step.
-- For ABS datasets, `get_metadata` returns `anchor_candidates`. Choose one anchor code only from that metadata and then call `retrieve` with `anchorType` and `anchorCode` so the server constructs the wildcard key.
-- Do not invent dataset IDs, filters, anchor codes, or data keys.
+- Follow the MCP server instructions and tool descriptions for discovery, retrieval, inspection, and narrowing. Do not invent dataset ids, provider ids, filters, anchor codes, product codes, or data keys.
 - Once MCP retrieval succeeds, stay on the MCP/artifact path.
-- Do not analyze large raw retrieval artifacts directly by default. Inspect first, then decide whether the artifact is already narrow enough to use directly or needs narrowing.
-- Use the size information returned by inspect to decide whether the artifact can go directly to python or needs narrowing first.
-- If inspect shows the artifact is already narrow enough for the user's request, use it directly rather than narrowing for its own sake.
+- Do not analyze large raw retrieval artifacts directly by default. Inspect first, use the size information to decide whether the artifact can go directly to python or needs narrowing, and use it directly if it is already narrow enough for the user's request.
 - If an artifact is too large for direct python handoff, narrow it enough to get under the handoff limit.
 - When data contains multiple frequencies, countries, or series variants, narrow to the exact comparable slice before answering.
 - For comparisons over time, use one comparable definition and one frequency before charting.
-- For ABS datasets, use exactly one anchor and wildcard every other segment, matching the metadata-derived template. Do not invent alternate frequency variants or annualized keys unless metadata clearly supports them.
-- After a successful ABS retrieve plus inspect, prefer narrowing and analysis over issuing another retrieve.
 - For matrix, workbook, supply-use, or input-output style datasets, retrieve the broad published table first, inspect the returned structure, and do not use MCP narrowing as the default next step.
 - For supply-use, input-output, and other matrix-style tables, prefer using the full retrieved table directly after inspect when it fits the python handoff limit.
 - If a matrix-style artifact is too large, narrow to one correct full matrix or one correct metric/anchor, not to partial rows or columns inside that matrix.

@@ -17,7 +17,9 @@
     "prepare": "npm run build",
     "watch": "tsc --watch",
     "inspector": "npx @modelcontextprotocol/inspector build/index.js",
-    "start": "node build/index.js"
+    "start": "node build/index.js",
+    "mcp:domestic": "node build/index.js",
+    "mcp:macro": "python -m backend.app.macro_mcp_server"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "0.6.0",

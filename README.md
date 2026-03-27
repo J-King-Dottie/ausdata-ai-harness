@@ -38,6 +38,15 @@ Example `.env`:
 OPENAI_API_KEY=your_key_here
 ```
 
+## Direct MCP Use
+
+The repo can be used directly as MCP, not just through the hosted app.
+
+- Domestic MCP server: `npm run mcp:domestic`
+- Macro MCP server: `python -m backend.app.macro_mcp_server`
+
+If your local MCP client supports a project-scoped `.mcp.json`, the repo includes one at the root with both servers already defined.
+
 Some catalog and metadata assets are built snapshots and need to be refreshed manually when needed:
 
 - Refresh the macro catalog:
