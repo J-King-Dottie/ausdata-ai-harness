@@ -918,6 +918,15 @@ def inspect_artifact(artifactId: str = "") -> Dict[str, Any]:
                     ),
                 }
             )
+        if kind == "domestic_narrowed":
+            extra.update(
+                {
+                    "analysis_should_narrow": False,
+                    "already_narrowed": True,
+                    "use_directly_for_analysis": True,
+                    "analysis_guidance": "This artifact is already narrowed. Use it directly in python/code interpreter unless you need a materially different slice with new explicit filters.",
+                }
+            )
         if _is_matrix_style_domestic_payload(payload) and estimated_bytes <= MAX_ANALYSIS_UPLOAD_BYTES:
             extra.update(_upload_analysis_csv(clean_artifact_id, label, headers, rows))
         elif _is_matrix_style_domestic_payload(payload) and estimated_bytes > MAX_ANALYSIS_UPLOAD_BYTES:
@@ -936,7 +945,19 @@ def inspect_artifact(artifactId: str = "") -> Dict[str, Any]:
             or payload.get("provider")
             or clean_artifact_id
         )
-        manifest = _macro_manifest(clean_artifact_id, kind, label, f"Inspected macro artifact '{label}'.", payload)
+        extra: Dict[str, Any] = {}
+        if kind == "macro_narrowed":
+            headers, rows = _flatten_macro_payload(payload)
+            extra.update(_upload_analysis_csv(clean_artifact_id, label, headers, rows))
+            extra.update(
+                {
+                    "analysis_should_narrow": False,
+                    "already_narrowed": True,
+                    "use_directly_for_analysis": True,
+                    "analysis_guidance": "This artifact is already narrowed. Use it directly in python/code interpreter unless you need a materially different slice with new explicit filters.",
+                }
+            )
+        manifest = _macro_manifest(clean_artifact_id, kind, label, f"Inspected macro artifact '{label}'.", payload, extra or None)
     else:
         raise RuntimeError(f"Unsupported artifact kind for {clean_artifact_id}.")
     logger.info(
@@ -983,10 +1004,22 @@ def narrow_artifact(
         clean_frequencies = [_clean_text(item).upper() for item in (frequencies or []) if _clean_text(item)]
         no_explicit_filters = not clean_countries and not clean_frequencies and not clean_series_key_contains and not clean_start and not clean_end
         source_series = payload.get("series") if isinstance(payload.get("series"), list) else []
-        if no_explicit_filters and kind == "macro_narrowed" and len(source_series) <= limited_max_series:
+        if no_explicit_filters and kind == "macro_narrowed":
             headers, rows = _flatten_macro_payload(payload)
             analysis = _upload_analysis_csv(clean_artifact_id, label, headers, rows)
-            manifest = _macro_manifest(clean_artifact_id, kind, label, f"Narrowed macro artifact '{label}'.", payload, analysis)
+            manifest = _macro_manifest(
+                clean_artifact_id,
+                kind,
+                label,
+                f"Macro artifact '{label}' was already narrowed. Use it directly for analysis instead of narrowing again.",
+                payload,
+                {
+                    "already_narrowed": True,
+                    "use_directly_for_analysis": True,
+                    "narrowing_reapplied": False,
+                    **analysis,
+                },
+            )
             return manifest
         narrowed_series: List[Dict[str, Any]] = []
         for series in source_series:
@@ -1047,10 +1080,22 @@ def narrow_artifact(
                 "For supply-use, input-output, or matrix-style domestic tables, narrow_artifact requires a specific metric/anchor filter so it can isolate one correct full matrix before python analysis."
             )
         source_series = payload.get("series") if isinstance(payload.get("series"), list) else []
-        if no_explicit_filters and kind == "domestic_narrowed" and len(source_series) <= limited_max_series:
+        if no_explicit_filters and kind == "domestic_narrowed":
             headers, rows = _flatten_domestic_payload(payload)
             analysis = _upload_analysis_csv(clean_artifact_id, label, headers, rows)
-            return _domestic_manifest(clean_artifact_id, kind, label, f"Narrowed domestic artifact '{label}'.", payload, analysis)
+            return _domestic_manifest(
+                clean_artifact_id,
+                kind,
+                label,
+                f"Domestic artifact '{label}' was already narrowed. Use it directly for analysis instead of narrowing again.",
+                payload,
+                {
+                    "already_narrowed": True,
+                    "use_directly_for_analysis": True,
+                    "narrowing_reapplied": False,
+                    **analysis,
+                },
+            )
         narrowed_series: List[Dict[str, Any]] = []
         for series in source_series:
             if not isinstance(series, dict):

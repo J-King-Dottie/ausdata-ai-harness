@@ -19,7 +19,6 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 ROOT = Path(__file__).resolve().parents[2]
-ABS_CACHE_PATH = ROOT / "ABS_DATAFLOWS_FULL.json"
 MANUAL_DEFINITIONS_PATH = ROOT / "MANUAL_SOURCE_DEFINITIONS.json"
 DCCEEW_SCRIPT_PATH = ROOT / "scripts" / "dcceew_aes_xlsx.py"
 RBA_SCRIPT_PATH = ROOT / "scripts" / "rba_tables_csv.py"
@@ -234,20 +233,15 @@ class DomesticDataService:
         self.api_client = ABSApiClient()
         self.dcceew_service = CustomDomesticService(DCCEEW_SCRIPT_PATH, "dcceew_aes_xlsx", ".xlsx")
         self.rba_service = CustomDomesticService(RBA_SCRIPT_PATH, "rba_tables_csv", ".csv")
+        self._abs_flows_cache: Optional[List[Dict[str, Any]]] = None
+
+    def get_abs_data_flows(self, force_refresh: bool = False) -> List[Dict[str, Any]]:
+        if force_refresh or self._abs_flows_cache is None:
+            self._abs_flows_cache = self._fetch_abs_dataflows()
+        return [dict(flow) for flow in self._abs_flows_cache]
 
     def get_data_flows(self, force_refresh: bool = False) -> List[Dict[str, Any]]:
-        if force_refresh or not ABS_CACHE_PATH.exists():
-            flows = self._fetch_abs_dataflows()
-            payload = {
-                "lastUpdated": datetime.now(timezone.utc).isoformat(),
-                "flows": flows,
-            }
-            ABS_CACHE_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-        payload = _load_json(ABS_CACHE_PATH)
-        abs_flows = payload.get("flows") if isinstance(payload, dict) else None
-        if not isinstance(abs_flows, list):
-            legacy = payload.get("dataflows") if isinstance(payload, dict) else None
-            abs_flows = legacy if isinstance(legacy, list) else []
+        abs_flows = self.get_abs_data_flows(force_refresh)
         custom_flows = self._load_custom_flows()
         return [*custom_flows, *abs_flows]
 

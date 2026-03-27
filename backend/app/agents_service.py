@@ -258,6 +258,7 @@ Retrieval rules:
 - Once MCP retrieval succeeds, stay on the MCP/artifact path.
 - Do not analyze large raw retrieval artifacts directly by default. Inspect first, use the size information and narrowing guidance to decide whether the artifact can go directly to python or needs narrowing, and use it directly only if it is already narrow enough for the user's request.
 - If an artifact is too large for direct python handoff, narrow it enough to get under the handoff limit.
+- Narrow at most once by default. If an artifact is already `domestic_narrowed` or `macro_narrowed`, use it directly for python/code interpreter unless you are applying a materially different new explicit filter.
 - When data contains multiple frequencies, countries, or series variants, narrow to the exact comparable slice before answering.
 - For comparisons over time, use one comparable definition and one frequency before charting.
 - For ABS and other domestic time-series artifacts, prefer narrowing before python analysis whenever multiple variants, categories, or broad slices remain.

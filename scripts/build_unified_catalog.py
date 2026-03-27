@@ -11,6 +11,7 @@ from typing import Any, Dict, List
 
 import httpx
 
+from backend.app.domestic_data import get_domestic_service
 from build_macro_catalog import (
     build_comtrade_catalog,
     dedupe_entries,
@@ -22,7 +23,6 @@ from build_macro_catalog import (
 
 
 ROOT = Path(__file__).resolve().parents[1]
-ABS_DATAFLOWS_PATH = ROOT / "ABS_DATAFLOWS_FULL.json"
 MANUAL_SOURCE_DEFINITIONS_PATH = ROOT / "MANUAL_SOURCE_DEFINITIONS.json"
 CATALOG_ENRICHMENTS_PATH = ROOT / "CATALOG_ENRICHMENTS.json"
 OUTPUT_PATH = ROOT / "UNIFIED_CATALOG_FULL.json"
@@ -47,14 +47,7 @@ def _load_json(path: Path) -> Any:
 
 
 def _load_abs_flows() -> List[Dict[str, Any]]:
-    payload = _load_json(ABS_DATAFLOWS_PATH)
-    flows = payload.get("flows") if isinstance(payload, dict) else None
-    if isinstance(flows, list):
-        return [item for item in flows if isinstance(item, dict)]
-    legacy = payload.get("dataflows") if isinstance(payload, dict) else None
-    if isinstance(legacy, list):
-        return [item for item in legacy if isinstance(item, dict)]
-    raise RuntimeError(f"Unsupported ABS snapshot format in {ABS_DATAFLOWS_PATH}")
+    return get_domestic_service().get_abs_data_flows(force_refresh=True)
 
 
 def _load_manual_flows() -> List[Dict[str, Any]]:
