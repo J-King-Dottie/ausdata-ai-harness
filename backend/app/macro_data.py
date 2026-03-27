@@ -1255,6 +1255,7 @@ def _fetch_world_bank(query: str, entry: MacroCatalogEntry, provider_config: Dic
     if start_year and end_year:
         params["date"] = f"{start_year}:{end_year}"
     request_url = _request_url(url, params)
+    final_request_url = request_url
     logger.info(
         'Macro retrieval request provider=worldbank indicator=%s countries="%s" all_countries=%s url="%s"',
         series_id,
@@ -1267,9 +1268,12 @@ def _fetch_world_bank(query: str, entry: MacroCatalogEntry, provider_config: Dic
         response.raise_for_status()
         if _looks_like_html_error(response.text):
             raise RuntimeError("World Bank returned an HTML error page.")
+        final_request_url = str(response.request.url)
         payload = response.json()
     except Exception as exc:
         response = exc.response if isinstance(exc, httpx.HTTPStatusError) else None
+        if response is not None and getattr(response, "request", None) is not None:
+            final_request_url = str(response.request.url)
         body_preview = _truncate_log(response.text, 500) if response is not None else ""
         logger.error(
             'Macro retrieval error provider=worldbank indicator=%s url="%s" status=%s error="%s" body="%s"',
@@ -1362,14 +1366,14 @@ def _fetch_world_bank(query: str, entry: MacroCatalogEntry, provider_config: Dic
         "Macro retrieval success provider=worldbank indicator=%s series=%s url=\"%s\"",
         series_id,
         len(series),
-        _truncate_log(str(response.request.url), 700),
+        _truncate_log(final_request_url, 700),
     )
 
     return {
         "provider": WORLD_BANK_PROVIDER,
         "concept_id": entry.concept_id,
         "concept_label": entry.concept_label,
-        "api_request_url": str(response.request.url),
+        "api_request_url": final_request_url,
         "series": series,
         "source_references": source_refs,
     }

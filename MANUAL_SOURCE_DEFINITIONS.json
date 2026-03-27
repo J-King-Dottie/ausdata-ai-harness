@@ -1,0 +1,1232 @@
+{
+  "lastUpdated": "2026-03-19T00:00:00Z",
+  "flows": [
+    {
+      "id": "AES_TABLE_O",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "Australian Energy Statistics Table O: electricity generation by fuel type",
+      "description": "DCCEEW Australian Energy Statistics workbook for electricity generation by fuel type. Includes historical annual series with Australia, state, financial year, calendar year, and industry/state breakdown sheets.",
+      "flowType": "dcceew_aes_xlsx",
+      "sourceType": "xlsx",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Department of Climate Change, Energy, the Environment and Water",
+      "sourcePageUrl": "https://www.energy.gov.au/publications/australian-energy-statistics-table-o-electricity-generation-fuel-type-2023-24-and-2024",
+      "sourceUrl": "https://www.energy.gov.au/sites/default/files/2025-06/Australian%20Energy%20Statistics%202025%20Table%20O.xlsx",
+      "curation": {
+        "ignoredSheets": [
+          "Title page",
+          "Method note",
+          "Index"
+        ],
+        "sheetGroups": [
+          {
+            "id": "national_financial_year",
+            "description": "Australia financial-year electricity generation by fuel type.",
+            "sheets": [
+              "AUS FY"
+            ]
+          },
+          {
+            "id": "state_financial_year",
+            "description": "State and territory financial-year electricity generation by fuel type.",
+            "sheets": [
+              "NSW FY",
+              "VIC FY",
+              "QLD FY",
+              "WA FY",
+              "SA FY",
+              "TAS FY",
+              "NT FY"
+            ]
+          },
+          {
+            "id": "state_summary_financial_year",
+            "description": "Single financial-year state comparison summary for 2023-24.",
+            "sheets": [
+              "State summary 2023-24"
+            ]
+          },
+          {
+            "id": "bioenergy_breakdown_financial_year",
+            "description": "Financial-year bioenergy breakdown detail.",
+            "sheets": [
+              "Bioenergy breakdown FY"
+            ]
+          },
+          {
+            "id": "industry_breakdown_financial_year",
+            "description": "Financial-year industry and industry-state electricity generation breakdowns.",
+            "sheets": [
+              "Industry breakdown FY",
+              "Industry and state FY"
+            ]
+          },
+          {
+            "id": "national_calendar_year",
+            "description": "Australia calendar-year electricity generation by fuel type.",
+            "sheets": [
+              "AUS CY"
+            ]
+          },
+          {
+            "id": "state_calendar_year",
+            "description": "State and territory calendar-year electricity generation by fuel type.",
+            "sheets": [
+              "NSW CY",
+              "VIC CY",
+              "QLD CY",
+              "WA CY",
+              "SA CY",
+              "TAS CY",
+              "NT CY"
+            ]
+          },
+          {
+            "id": "state_summary_calendar_year",
+            "description": "Single calendar-year state comparison summary for 2024.",
+            "sheets": [
+              "State summary 2024"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "RBA_A1",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "A1 RESERVE BANK OF AUSTRALIA - BALANCE SHEET",
+      "description": "Reserve Bank of Australia statistical table A1. Includes series such as Notes on issue; Exchange settlement balances; Deposits of overseas institutions; Australian Government Deposits. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/a1-data.csv",
+      "curation": {
+        "tableCode": "A1"
+      }
+    },
+    {
+      "id": "RBA_A2",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "A2 RESERVE BANK OF AUSTRALIA – CHANGES IN MONETARY POLICY AND ADMINISTERED RATES",
+      "description": "Reserve Bank of Australia statistical table A2. Includes series such as Change in Cash Rate Target; New Cash Rate Target; Change in ES Rate; New ES Rate. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/a2-data.csv",
+      "curation": {
+        "tableCode": "A2"
+      }
+    },
+    {
+      "id": "RBA_A4",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "A4 RESERVE BANK OF AUSTRALIA – FOREIGN EXCHANGE TRANSACTIONS AND HOLDINGS OF OFFICIAL RESERVE ASSETS",
+      "description": "Reserve Bank of Australia statistical table A4. Includes series such as RBA FX transactions (Market); RBA FX transactions (Government); FX transactions (Other); RBA FX transactions (Swap). Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/a4-data.csv",
+      "curation": {
+        "tableCode": "A4"
+      }
+    },
+    {
+      "id": "RBA_A5",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "A5 RESERVE BANK OF AUSTRALIA - DAILY FOREIGN EXCHANGE MARKET INTERVENTION TRANSACTIONS",
+      "description": "Reserve Bank of Australia statistical table A5. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/a5-data.csv",
+      "curation": {
+        "tableCode": "A5"
+      }
+    },
+    {
+      "id": "RBA_A7",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "A7 RESERVE BANK OF AUSTRALIA - DETECTED AUSTRALIAN COUNTERFEITS BY DENOMINATION",
+      "description": "Reserve Bank of Australia statistical table A7. Includes series such as $5 counterfeits; $10 counterfeits; $20 counterfeits; $50 counterfeits. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/a7-data.csv",
+      "curation": {
+        "tableCode": "A7"
+      }
+    },
+    {
+      "id": "RBA_B1",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "B1 ASSETS OF FINANCIAL INSTITUTIONS",
+      "description": "Reserve Bank of Australia statistical table B1. Includes series such as Assets; RBA; Assets; Banks; Assets; RFCs; Assets; Unconsolidated; Statutory funds of life insurance offices; Superannuation. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/b1-data.csv",
+      "curation": {
+        "tableCode": "B1"
+      }
+    },
+    {
+      "id": "RBA_B10",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "B10 FINANCE COMPANIES AND GENERAL FINANCIERS – SELECTED ASSETS AND LIABILITIES",
+      "description": "Reserve Bank of Australia statistical table B10. Includes series such as Finance companies; Assets; Cash and liquid assets; Cash and balances with AFIs; Finance companies; Assets; Cash and liquid assets; Other; Finance companies; Assets; Loans and advances; Household; Finance companies; Assets; Loans and advances; Business excluding financial businesses. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/b10-data.csv",
+      "curation": {
+        "tableCode": "B10"
+      }
+    },
+    {
+      "id": "RBA_B12.1",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "B12.1 INTERNATIONAL ASSETS OF THE AUSTRALIAN-LOCATED OPERATIONS OF BANKS AND RFCs",
+      "description": "Reserve Bank of Australia statistical table B12.1. Includes series such as International assets of the Australian-located operations of banks and RFCs: Canada: Total; International assets of the Australian-located operations of banks and RFCs: Canada: of which: Claims on banks; International assets of the Australian-located operations of banks and RFCs: Canada: By type: Loans; International assets of the Australian-located operations of banks and RFCs: Canada: By type: Debt securities held. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/b12.1-data.csv",
+      "curation": {
+        "tableCode": "B12.1"
+      }
+    },
+    {
+      "id": "RBA_B12.2",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "B12.2 INTERNATIONAL LIABILITIES OF THE AUSTRALIAN-LOCATED OPERATIONS OF BANKS AND RFCS",
+      "description": "Reserve Bank of Australia statistical table B12.2. Includes series such as International liabilities of the Australian-located operations of banks and RFCs: Canada: Total; International liabilities of the Australian-located operations of banks and RFCs: Canada: of which: liabilities to banks; International liabilities of the Australian-located operations of banks and RFCs: Canada: By type: Deposits; International liabilities of the Australian-located operations of banks and RFCs: Canada: By type: Debt securities issued. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/b12.2-data.csv",
+      "curation": {
+        "tableCode": "B12.2"
+      }
+    },
+    {
+      "id": "RBA_B13.1",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "B13.1 INTERNATIONAL EXPOSURES OF THE GLOBALLY CONSOLIDATED OPERATIONS OF AUSTRALIAN-OWNED BANKS AND RFCs – IMMEDIATE RISK BASIS",
+      "description": "Reserve Bank of Australia statistical table B13.1. Includes series such as International exposures of the globally consolidated operations of Australian-owned banks and RFCs: International claims: Immediate risk basis: Canada; International exposures of the globally consolidated operations of Australian-owned banks and RFCs: International claims: Immediate risk basis: Canada: By maturity: 0-3 mths; International exposures of the globally consolidated operations of Australian-owned banks and RFCs: International claims: Immediate risk basis: Canada: By maturity: 3-12 mths; International exposures of the globally consolidated operations of Australian-owned banks and RFCs: International claims: Immediate risk basis: Canada: By maturity: 1-5 yrs. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/b13.1-data.csv",
+      "curation": {
+        "tableCode": "B13.1"
+      }
+    },
+    {
+      "id": "RBA_B13.2",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "B13.2 INTERNATIONAL EXPOSURES OF THE GLOBALLY CONSOLIDATED OPERATIONS OF AUSTRALIAN-OWNED BANKS AND RFCS: ULTIMATE RISK BASIS",
+      "description": "Reserve Bank of Australia statistical table B13.2. Includes series such as International exposures of the globally consolidated operations of Australian-owned banks and RFCs: Foreign claims: Ultimate risk basis: Canada; International exposures of the globally consolidated operations of Australian-owned banks and RFCs: Foreign claims: Ultimate risk basis: Canada: Claims on: Banks; International exposures of the globally consolidated operations of Australian-owned banks and RFCs: Foreign claims: Ultimate risk basis: Canada: Claims on: Public sector; International exposures of the globally consolidated operations of Australian-owned banks and RFCs: Foreign claims: Ultimate risk basis: Canada: Claims on: Non-bank private sector. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/b13.2-data.csv",
+      "curation": {
+        "tableCode": "B13.2"
+      }
+    },
+    {
+      "id": "RBA_B2",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "B2 BANKS – OFF-BALANCE SHEET BUSINESS",
+      "description": "Reserve Bank of Australia statistical table B2. Includes series such as Banks' consolidated group off-balance sheet business: Direct credit substitutes; Banks' consolidated group off-balance sheet business: Trade-and performance-related items; Banks' consolidated group off-balance sheet business: Commitments and other non-market-related items; Banks' consolidated group off-balance sheet business: Interest rate contracts: OTC forwards. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/b2-data.csv",
+      "curation": {
+        "tableCode": "B2"
+      }
+    },
+    {
+      "id": "RBA_B20",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "B20 RENMINBI-DENOMINATED DEPOSITS AND LOANS OF AUSTRALIAN-RESIDENT FINANCIAL INSTITUTIONS",
+      "description": "Reserve Bank of Australia statistical table B20. Includes series such as Renminbi-denominated deposits; Renminbi-denominated loans. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/b20-data.csv",
+      "curation": {
+        "tableCode": "B20"
+      }
+    },
+    {
+      "id": "RBA_C1",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "C1 Credit and Charge Cards – Seasonally Adjusted Series",
+      "description": "Reserve Bank of Australia statistical table C1. Includes series such as Number of cash advances; Value of cash advances; Number of domestic cash advances; Value of domestic cash advances. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/c1-data.csv",
+      "curation": {
+        "tableCode": "C1"
+      }
+    },
+    {
+      "id": "RBA_C1.2",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "C1.2 Credit and Charge Cards – Original Series – Personal and Commercial Cards",
+      "description": "Reserve Bank of Australia statistical table C1.2. Includes series such as Number of accounts: personal cards; Number of active accounts: personal cards; Number of cards on issue: personal cards; Number of cash advances: personal cards. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/c1.2-data.csv",
+      "curation": {
+        "tableCode": "C1.2"
+      }
+    },
+    {
+      "id": "RBA_C2",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "C2 Debit Cards – Seasonally Adjusted Series",
+      "description": "Reserve Bank of Australia statistical table C2. Includes series such as Number of purchases; Value of purchases; Number of cash-out transactions; Value of cash-out transactions. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/c2-data.csv",
+      "curation": {
+        "tableCode": "C2"
+      }
+    },
+    {
+      "id": "RBA_C3",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "C3 Average Merchant Fees for Debit, Credit and Charge Cards",
+      "description": "Reserve Bank of Australia statistical table C3. Includes series such as TOTAL merchant fees for: Mastercard and Visa all cards; TOTAL merchant fees for: Mastercard and Visa debit; TOTAL merchant fees for: Visa debit; TOTAL merchant fees for: Visa debit domestic cards: device present. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/c3-data.csv",
+      "curation": {
+        "tableCode": "C3"
+      }
+    },
+    {
+      "id": "RBA_C4",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "C4 ATMs – Seasonally Adjusted Series",
+      "description": "Reserve Bank of Australia statistical table C4. Includes series such as Total number of cash withdrawals by debit cards; Total value of cash withdrawals by debit cards; Number of overseas cash withdrawals by debit cards; Value of overseas cash withdrawals by debit cards. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/c4-data.csv",
+      "curation": {
+        "tableCode": "C4"
+      }
+    },
+    {
+      "id": "RBA_C4.1",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "C4.1 ATMs – Original Series",
+      "description": "Reserve Bank of Australia statistical table C4.1. Includes series such as Total number of cash withdrawals by debit cards; Total value of cash withdrawals by debit cards; Number of overseas cash withdrawals by debit cards; Value of overseas cash withdrawals by debit cards. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/c4.1-data.csv",
+      "curation": {
+        "tableCode": "C4.1"
+      }
+    },
+    {
+      "id": "RBA_C5",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "C5 Cheques – Seasonally Adjusted Series",
+      "description": "Reserve Bank of Australia statistical table C5. Includes series such as Number of personal cheques; Value of personal cheques; Number of commercial cheques; Value of commercial cheques. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/c5-data.csv",
+      "curation": {
+        "tableCode": "C5"
+      }
+    },
+    {
+      "id": "RBA_C5.1",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "C5.1 Cheques – Original Series",
+      "description": "Reserve Bank of Australia statistical table C5.1. Includes series such as Number of personal cheque accounts; Number of commercial cheque accounts; Number of customer cheque accounts; Number of personal cheques. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/c5.1-data.csv",
+      "curation": {
+        "tableCode": "C5.1"
+      }
+    },
+    {
+      "id": "RBA_C6",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "C6 Direct Entry and NPP – Seasonally Adjusted Series",
+      "description": "Reserve Bank of Australia statistical table C6. Includes series such as Number of credit transfers; Value of credit transfers; Number of debit transfers; Value of debit transfers. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/c6-data.csv",
+      "curation": {
+        "tableCode": "C6"
+      }
+    },
+    {
+      "id": "RBA_C6.1",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "C6.1 Direct Entry and NPP – Original Series",
+      "description": "Reserve Bank of Australia statistical table C6.1. Includes series such as Number of credit transfers; Value of credit transfers; Number of debit transfers; Value of debit transfers. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/c6.1-data.csv",
+      "curation": {
+        "tableCode": "C6.1"
+      }
+    },
+    {
+      "id": "RBA_C7",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "C7 REAL-TIME GROSS SETTLEMENT STATISTICS",
+      "description": "Reserve Bank of Australia statistical table C7. Includes series such as RITS business days; Number of RITS payments; Number of SWIFT payments; Number of Austraclear payments. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/c7-data.csv",
+      "curation": {
+        "tableCode": "C7"
+      }
+    },
+    {
+      "id": "RBA_C9",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "C9 DOMESTIC BANKING FEES CHARGED",
+      "description": "Reserve Bank of Australia statistical table C9. Includes series such as Domestic banking fees charged; Fees charged to households; Transaction deposit accounts; Domestic banking fees charged; Fees charged to households; Other deposit accounts; Domestic banking fees charged; Fees charged to households; Housing loans; Domestic banking fees charged; Fees charged to households; Personal loans. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/c9-data.csv",
+      "curation": {
+        "tableCode": "C9"
+      }
+    },
+    {
+      "id": "RBA_D1",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "D1 GROWTH IN SELECTED FINANCIAL AGGREGATES",
+      "description": "Reserve Bank of Australia statistical table D1. Includes series such as Credit; Housing; Monthly growth; Credit; Housing; 12-month ended growth; Credit; Owner-occupier housing; Monthly growth; Credit; Owner-occupier housing; 12-month ended growth. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/d1-data.csv",
+      "curation": {
+        "tableCode": "D1"
+      }
+    },
+    {
+      "id": "RBA_D10",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "D10 MARGIN LENDING",
+      "description": "Reserve Bank of Australia statistical table D10. Includes series such as Margin lending; Total; Margin lending; Total; Protected financing; Margin lending; Aggregate credit limit; Margin lending; Value of underlying security. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/d10-data.csv",
+      "curation": {
+        "tableCode": "D10"
+      }
+    },
+    {
+      "id": "RBA_D11",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "D11 MONETARY STATISTICS (IMF FRAMEWORK) – CENTRAL BANK SURVEY",
+      "description": "Reserve Bank of Australia statistical table D11. Includes series such as Assets: Foreign currency claims on non-residents; Liabilities: Foreign currency liabilities to non-residents; Subtotal: Net foreign currency claims on non-residents; Assets: Claims on authorised deposit-taking institutions. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/d11-data.csv",
+      "curation": {
+        "tableCode": "D11"
+      }
+    },
+    {
+      "id": "RBA_D12",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "D12 MONETARY STATISTICS (IMF FRAMEWORK) – AUTHORISED DEPOSIT-TAKING INSTITUTIONS SURVEY",
+      "description": "Reserve Bank of Australia statistical table D12. Includes series such as Assets: Claims on non-residents; Liabilities: Liabilities to non-residents; Subtotal: Net foreign assets; Assets: Claims on central bank. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/d12-data.csv",
+      "curation": {
+        "tableCode": "D12"
+      }
+    },
+    {
+      "id": "RBA_D13",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "D13 MONETARY STATISTICS (IMF FRAMEWORK) – CONSOLIDATED SURVEY",
+      "description": "Reserve Bank of Australia statistical table D13. Includes series such as Assets: Claims on non-residents; Liabilities: Liabilities to non-residents; Subtotal: Net foreign assets; Assets: Claims on central government. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/d13-data.csv",
+      "curation": {
+        "tableCode": "D13"
+      }
+    },
+    {
+      "id": "RBA_D14",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "D14 LENDING TO BUSINESS – BUSINESS FINANCE OUTSTANDING BY BUSINESS SIZE AND INTEREST RATE TYPE",
+      "description": "Reserve Bank of Australia statistical table D14. Includes series such as Business; Outstanding; Small business; Total; Business; Outstanding; Small business; of which, Residentially secured; Business; Outstanding; Small business; Fixed rate; Business; Outstanding; Small business; Variable rate. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/d14-data.csv",
+      "curation": {
+        "tableCode": "D14"
+      }
+    },
+    {
+      "id": "RBA_D14.1",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "D14.1 LENDING TO BUSINESS – BUSINESS FINANCE OUTSTANDING BY BUSINESS SIZE AND INDUSTRY",
+      "description": "Reserve Bank of Australia statistical table D14.1. Includes series such as Business; Outstanding; Total, excluding selected financial businesses; Business; Outstanding; Small business; Agriculture, forestry and fishing; Business; Outstanding; Medium business; Agriculture, forestry and fishing; Business; Outstanding; Large business; Agriculture, forestry and fishing. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/d14.1-data.csv",
+      "curation": {
+        "tableCode": "D14.1"
+      }
+    },
+    {
+      "id": "RBA_D2",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "D2 LENDING AND CREDIT AGGREGATES",
+      "description": "Reserve Bank of Australia statistical table D2. Includes series such as Loans and advances excluding financial businesses; Banks; Loans and advances; Banks; Loans and advances excluding financial businesses; NBFIs; Loans and advances; NBFIs. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/d2-data.csv",
+      "curation": {
+        "tableCode": "D2"
+      }
+    },
+    {
+      "id": "RBA_D3",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "D3 MONETARY AGGREGATES",
+      "description": "Reserve Bank of Australia statistical table D3. Includes series such as Currency; Transaction Deposits with ADIs; M1; Certificates of deposit issued by ADIs. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/d3-data.csv",
+      "curation": {
+        "tableCode": "D3"
+      }
+    },
+    {
+      "id": "RBA_D4",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "D4 DEBT SECURITIES OUTSTANDING",
+      "description": "Reserve Bank of Australia statistical table D4. Includes series such as Short-term non-government securities issued in Australia – Banks and other financial corporations; Short-term non-government securities issued in Australia – Non-financial corporations; Short-term non-government securities issued in Australia – Asset-backed; Short-term non-government securities issued in Australia – Non-residents. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/d4-data.csv",
+      "curation": {
+        "tableCode": "D4"
+      }
+    },
+    {
+      "id": "RBA_D5",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "D5 BANK LENDING CLASSIFIED BY SECTOR",
+      "description": "Reserve Bank of Australia statistical table D5. Includes series such as Lending to government; Total; Lending to persons; Housing; Owner-occupiers; Lending to persons; Housing; Investors; Lending to persons; Other personal; Fixed loans. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/d5-data.csv",
+      "curation": {
+        "tableCode": "D5"
+      }
+    },
+    {
+      "id": "RBA_D9",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "D9 RURAL DEBT BY LENDER",
+      "description": "Reserve Bank of Australia statistical table D9. Includes series such as Rural debt by; All banks; Rural debt by; Pastoral and other finance companies; Rural debt by; Other government; Rural debt by; Life insurance companies. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/d9-data.csv",
+      "curation": {
+        "tableCode": "D9"
+      }
+    },
+    {
+      "id": "RBA_E1",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "E1 HOUSEHOLD AND BUSINESS BALANCE SHEETS",
+      "description": "Reserve Bank of Australia statistical table E1. Includes series such as Household dwellings; Household consumer durables; Household total non-financial assets; Household deposits. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/e1-data.csv",
+      "curation": {
+        "tableCode": "E1"
+      }
+    },
+    {
+      "id": "RBA_E13",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "E13 HOUSING LOAN PAYMENTS",
+      "description": "Reserve Bank of Australia statistical table E13. Includes series such as Payments; Housing; Owner-occupied; Interest charged; Payments; Housing; Owner-occupied; Scheduled repayments; Payments; Housing; Investment; Interest charged; Payments; Housing; Investment; Scheduled repayments. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/e13-data.csv",
+      "curation": {
+        "tableCode": "E13"
+      }
+    },
+    {
+      "id": "RBA_E2",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "E2 HOUSEHOLD FINANCES – SELECTED RATIOS",
+      "description": "Reserve Bank of Australia statistical table E2. Includes series such as Household debt to assets; Housing debt to housing assets; Household debt to income; Housing debt to income. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/e2-data.csv",
+      "curation": {
+        "tableCode": "E2"
+      }
+    },
+    {
+      "id": "RBA_F1",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "F1 INTEREST RATES AND YIELDS – MONEY MARKET",
+      "description": "Reserve Bank of Australia statistical table F1. Includes series such as Cash Rate Target; Change in the Cash Rate Target; Interbank Overnight Cash Rate; Highest Interbank Overnight Cash Rate. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/f1-data.csv",
+      "curation": {
+        "tableCode": "F1"
+      }
+    },
+    {
+      "id": "RBA_F1.1",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "F1.1 INTEREST RATES AND YIELDS – MONEY MARKET",
+      "description": "Reserve Bank of Australia statistical table F1.1. Includes series such as Cash Rate Target; Interbank Overnight Cash Rate; Highest Interbank Overnight Cash Rate; Lowest Interbank Overnight Cash Rate. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/f1.1-data.csv",
+      "curation": {
+        "tableCode": "F1.1"
+      }
+    },
+    {
+      "id": "RBA_F10",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "F10 FOREIGN EXCHANGE TURNOVER AGAINST ALL CURRENCIES",
+      "description": "Reserve Bank of Australia statistical table F10. Includes series such as Outright spot turnover in all currencies – local reporting dealers; Outright spot turnover in all currencies – overseas reporting dealers; Outright spot turnover in all currencies – local other financial institutions; Outright spot turnover in all currencies – overseas other financial institutions. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/f10-data.csv",
+      "curation": {
+        "tableCode": "F10"
+      }
+    },
+    {
+      "id": "RBA_F11.1",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "F11.1 EXCHANGE RATES",
+      "description": "Reserve Bank of Australia statistical table F11.1. Includes series such as A$1=USD; Trade-weighted Index May 1970 = 100; A$1=CNY; A$1=JPY. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/f11.1-data.csv",
+      "curation": {
+        "tableCode": "F11.1"
+      }
+    },
+    {
+      "id": "RBA_F12",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "F12 US DOLLAR EXCHANGE RATES",
+      "description": "Reserve Bank of Australia statistical table F12. Includes series such as US dollar against the euro; US dollar against the Japanese yen; US dollar against the UK pound sterling; US dollar against the Canadian dollar. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/f12-data.csv",
+      "curation": {
+        "tableCode": "F12"
+      }
+    },
+    {
+      "id": "RBA_F15",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "F15 REAL EXCHANGE RATE MEASURES",
+      "description": "Reserve Bank of Australia statistical table F15. Includes series such as Real trade-weighted index; Real import-weighted index; Real export-weighted index. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/f15-data.csv",
+      "curation": {
+        "tableCode": "F15"
+      }
+    },
+    {
+      "id": "RBA_F16",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "F16 INDICATIVE MID RATES OF SELECTED AUSTRALIAN GOVERNMENT SECURITIES",
+      "description": "Reserve Bank of Australia statistical table F16. Includes series such as Treasury Bond; Treasury Bond; Treasury Bond; Treasury Bond. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/f16-data.csv",
+      "curation": {
+        "tableCode": "F16"
+      }
+    },
+    {
+      "id": "RBA_F2",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "F2 CAPITAL MARKET YIELDS – GOVERNMENT BONDS",
+      "description": "Reserve Bank of Australia statistical table F2. Includes series such as Australian Government 2 year bond; Australian Government 3 year bond; Australian Government 5 year bond; Australian Government 10 year bond. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/f2-data.csv",
+      "curation": {
+        "tableCode": "F2"
+      }
+    },
+    {
+      "id": "RBA_F2.1",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "F2.1 CAPITAL MARKET YIELDS – GOVERNMENT BONDS",
+      "description": "Reserve Bank of Australia statistical table F2.1. Includes series such as Australian Government 2 year bond; Australian Government 3 year bond; Australian Government 5 year bond; Australian Government 10 year bond. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/f2.1-data.csv",
+      "curation": {
+        "tableCode": "F2.1"
+      }
+    },
+    {
+      "id": "RBA_F3",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "F3 AGGREGATE MEASURES OF AUSTRALIAN CORPORATE BOND YIELDS: NON-FINANCIAL CORPORATE (NFC) BONDS",
+      "description": "Reserve Bank of Australia statistical table F3. Includes series such as Non-financial corporate A-rated bonds – Effective tenor – 3 year target tenor; Non-financial corporate A-rated bonds – Yield – 3 year target tenor; Non-financial corporate A-rated bonds – Effective tenor – 5 year target tenor; Non-financial corporate A-rated bonds – Yield – 5 year target tenor. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/f3-data.csv",
+      "curation": {
+        "tableCode": "F3"
+      }
+    },
+    {
+      "id": "RBA_F4",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "F4 RETAIL DEPOSIT AND INVESTMENT RATES",
+      "description": "Reserve Bank of Australia statistical table F4. Includes series such as Retail deposit and investment rates; Transaction accounts; Banks; $5000; Retail deposit and investment rates; Transaction accounts; Building societies; $5000; Retail deposit and investment rates; Transaction accounts; Credit unions; $5000; Retail deposit and investment rates; Transaction accounts; Building societies, credit unions and mutual banks; $5000. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/f4-data.csv",
+      "curation": {
+        "tableCode": "F4"
+      }
+    },
+    {
+      "id": "RBA_F4.1",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "F4.1 PAID DEPOSIT RATES",
+      "description": "Reserve Bank of Australia statistical table F4.1. Includes series such as Deposit rates; Outstanding; Total; Deposit rates; Outstanding; Households; Deposit rates; Outstanding; Institutions; Deposit rates; Outstanding; At-call; Total. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/f4.1-data.csv",
+      "curation": {
+        "tableCode": "F4.1"
+      }
+    },
+    {
+      "id": "RBA_F5",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "F5 INDICATOR LENDING RATES",
+      "description": "Reserve Bank of Australia statistical table F5. Includes series such as Lending rates; Small business; Variable; Term; Lending rates; Small business; Variable; Overdraft; Lending rates; Housing loans; Banks; Variable; Standard; Owner-occupier; Lending rates; Housing loans; Banks; Variable; Discounted; Owner-occupier. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/f5-data.csv",
+      "curation": {
+        "tableCode": "F5"
+      }
+    },
+    {
+      "id": "RBA_F6",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "F6 - HOUSING LENDING RATES",
+      "description": "Reserve Bank of Australia statistical table F6. Includes series such as Lending rates; Housing credit; Outstanding; Owner-occupied; All loans; Large institutions; Lending rates; Housing credit; Outstanding; Owner-occupied; All loans; All institutions; Lending rates; Housing credit; Outstanding; Owner-occupied; Variable-rate; Large institutions; Lending rates; Housing credit; Outstanding; Owner-occupied; Variable-rate; All institutions. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/f6-data.csv",
+      "curation": {
+        "tableCode": "F6"
+      }
+    },
+    {
+      "id": "RBA_F7",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "F7 BUSINESS LENDING RATES",
+      "description": "Reserve Bank of Australia statistical table F7. Includes series such as Lending rates; Business finance; Outstanding; Small business; Total; Lending rates; Business finance; Outstanding; Small business; of which, Residentially secured; Lending rates; Business finance; Outstanding; Small business; Fixed-rate; Lending rates; Business finance; Outstanding; Small business; Variable-rate. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/f7-data.csv",
+      "curation": {
+        "tableCode": "F7"
+      }
+    },
+    {
+      "id": "RBA_F8",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "F8 PERSONAL LENDING RATES",
+      "description": "Reserve Bank of Australia statistical table F8. Includes series such as Lending rates; Personal credit; Outstanding; Credit card balances incurring interest; Total; Lending rates; Personal credit; Outstanding; Finance leases; Total; Lending rates; Personal credit; Outstanding; Margin lending; Total; Lending rates; Personal credit; Outstanding; Fixed-term loans; Total. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/f8-data.csv",
+      "curation": {
+        "tableCode": "F8"
+      }
+    },
+    {
+      "id": "RBA_F9",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "F9 FOREIGN EXCHANGE TURNOVER AGAINST AUSTRALIAN DOLLARS",
+      "description": "Reserve Bank of Australia statistical table F9. Includes series such as Outright spot turnover against Australian dollars – local reporting dealers; Outright spot turnover against Australian dollars – overseas reporting dealers; Outright spot turnover against Australian dollars – local other financial institutions; Outright spot turnover against Australian dollars – overseas other financial institutions. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/f9-data.csv",
+      "curation": {
+        "tableCode": "F9"
+      }
+    },
+    {
+      "id": "RBA_G1",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "G1 CONSUMER PRICE INFLATION",
+      "description": "Reserve Bank of Australia statistical table G1. Includes series such as Consumer price index; Year-ended inflation; Year-ended inflation – excluding interest charges and tax changes; Year-ended inflation – excluding volatile items, interest charges and tax changes. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/g1-data.csv",
+      "curation": {
+        "tableCode": "G1"
+      }
+    },
+    {
+      "id": "RBA_G2",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "G2 CONSUMER PRICE INFLATION – EXPENDITURE GROUPS",
+      "description": "Reserve Bank of Australia statistical table G2. Includes series such as Food and non-alcoholic beverages year-ended inflation; Alcohol and tobacco year-ended inflation; Clothing and footwear year-ended inflation; Housing year-ended inflation. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/g2-data.csv",
+      "curation": {
+        "tableCode": "G2"
+      }
+    },
+    {
+      "id": "RBA_G3",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "G3 INFLATION EXPECTATIONS",
+      "description": "Reserve Bank of Australia statistical table G3. Includes series such as Consumer inflation expectations – 1-year ahead; Business inflation expectations – 3-months ahead; Union officials' inflation expectations – 1-year ahead; Union officials' inflation expectations – 2-year ahead. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/g3-data.csv",
+      "curation": {
+        "tableCode": "G3"
+      }
+    },
+    {
+      "id": "RBA_G4",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "G4 CONSUMER PRICE INFLATION – MONTHLY COLLECTION",
+      "description": "Reserve Bank of Australia statistical table G4. Includes series such as Consumer price index; Year-ended inflation; Monthly inflation – original; Monthly inflation. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/g4-data.csv",
+      "curation": {
+        "tableCode": "G4"
+      }
+    },
+    {
+      "id": "RBA_H1",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "H1 GROSS DOMESTIC PRODUCT AND INCOME",
+      "description": "Reserve Bank of Australia statistical table H1. Includes series such as Real GDP; Year-ended real GDP growth; Real non-farm GDP; Year-ended real non-farm GDP growth. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/h1-data.csv",
+      "curation": {
+        "tableCode": "H1"
+      }
+    },
+    {
+      "id": "RBA_H2",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "H2 DEMAND AND INCOME",
+      "description": "Reserve Bank of Australia statistical table H2. Includes series such as Household consumption; Year-ended household consumption growth; Dwelling investment; Year-ended dwelling investment growth. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/h2-data.csv",
+      "curation": {
+        "tableCode": "H2"
+      }
+    },
+    {
+      "id": "RBA_H3",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "H3 MONTHLY ACTIVITY INDICATORS",
+      "description": "Reserve Bank of Australia statistical table H3. Includes series such as Private dwelling approvals; Private dwelling approvals trend; Private non-residential building approvals; Consumer sentiment. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/h3-data.csv",
+      "curation": {
+        "tableCode": "H3"
+      }
+    },
+    {
+      "id": "RBA_H4",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "H4 LABOUR COSTS AND PRODUCTIVITY",
+      "description": "Reserve Bank of Australia statistical table H4. Includes series such as Year-ended wage growth; Year-ended private sector wage growth; Year-ended public sector wage growth; Quarterly wage growth. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/h4-data.csv",
+      "curation": {
+        "tableCode": "H4"
+      }
+    },
+    {
+      "id": "RBA_H5",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "H5 LABOUR FORCE",
+      "description": "Reserve Bank of Australia statistical table H5. Includes series such as Labour force; Participation rate; Part-time employment; Full-time employment. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/h5-data.csv",
+      "curation": {
+        "tableCode": "H5"
+      }
+    },
+    {
+      "id": "RBA_I1",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "I1 INTERNATIONAL TRADE AND BALANCE OF PAYMENTS",
+      "description": "Reserve Bank of Australia statistical table I1. Includes series such as Exports; Year-ended exports growth; Rural exports; Resource exports. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/i1-data.csv",
+      "curation": {
+        "tableCode": "I1"
+      }
+    },
+    {
+      "id": "RBA_I2",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "I2 COMMODITY PRICES",
+      "description": "Reserve Bank of Australia statistical table I2. Includes series such as Commodity prices – A$; Commodity prices – SDR; Commodity prices – US$; Rural commodity prices – A$. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/i2-data.csv",
+      "curation": {
+        "tableCode": "I2"
+      }
+    },
+    {
+      "id": "RBA_I3",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "I3 BALANCE OF PAYMENTS – FINANCIAL ACCOUNT",
+      "description": "Reserve Bank of Australia statistical table I3. Includes series such as Net inflows to the general government sector; Net inflows to the Reserve Bank; Net direct debt inflows to the non-official sector; Net direct equity inflows to the non-official sector. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/i3-data.csv",
+      "curation": {
+        "tableCode": "I3"
+      }
+    },
+    {
+      "id": "RBA_I4",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "I4 AUSTRALIA'S GROSS FOREIGN ASSETS AND LIABILITIES",
+      "description": "Reserve Bank of Australia statistical table I4. Includes series such as Gross official reserve assets; Gross foreign assets of the general government sector; Gross total foreign assets of the official sector; Gross foreign direct equity assets of the non-official sector. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/i4-data.csv",
+      "curation": {
+        "tableCode": "I4"
+      }
+    },
+    {
+      "id": "RBA_I5",
+      "agencyID": "CUSTOM_AUS",
+      "version": "1.0",
+      "name": "I5 AUSTRALIA'S NET FOREIGN LIABILITIES",
+      "description": "Reserve Bank of Australia statistical table I5. Includes series such as Net foreign debt liabilities of the official sector; Net foreign debt liabilities of the non-official sector; Net total foreign debt liabilities; Net total foreign equity liabilities. Live CSV download with per-series metadata rows and time-series observations.",
+      "flowType": "rba_tables_csv",
+      "sourceType": "csv",
+      "requiresMetadataBeforeRetrieval": false,
+      "sourceOrganization": "Reserve Bank of Australia",
+      "sourcePageUrl": "https://www.rba.gov.au/statistics/tables/",
+      "sourceUrl": "https://www.rba.gov.au/statistics/tables/csv/i5-data.csv",
+      "curation": {
+        "tableCode": "I5"
+      }
+    }
+  ]
+}

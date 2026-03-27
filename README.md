@@ -1,24 +1,24 @@
 ## Nisaba
 
-Nisaba is an open source data harness built around two MCP servers: one for domestic Australian data and one for global macro data.
+Nisaba is an open source data harness built around one unified MCP server.
 
 It builds on existing open source projects including [mcp-server-abs](https://github.com/seansoreilly/mcp-server-abs) and [openecon-data](https://github.com/hanlulong/openecon-data). We continue to expand it. 
 
-The goal is to make discovery, retrieval, and analysis across a wide range of public data sources as easy as possible. Over time we want to consolidate that into a single integrated MCP with broad, deep coverage.
+The goal is to make discovery, retrieval, and analysis across a wide range of public data sources as easy as possible through one catalog and one MCP surface, with source-specific retrieval adapters behind it.
 
-If you are technical, clone the repo, add your API key, and run it locally. If you are not, we have built a simple hosted web app on top of the MCP servers — log in, ask a question, get a grounded answer. That version is not free; we pass through the raw AI cost and add 10% to cover hosting. The repo is fully open source either way.
+If you are technical, clone the repo, add your API key, and run it locally. If you are not, we have built a simple hosted web app on top of the MCP server. Log in, ask a question, get a grounded answer. That version is not free; we pass through the raw AI cost and add 10% to cover hosting. The repo is fully open source either way.
 
-Here is what is currently plugged in:
+Here is what is currently plugged into the unified catalog:
 
-| Route | Provider | Datasets |
-| --- | --- | ---: |
-| Domestic | ABS | 1,221 |
-| Domestic | DCCEEW | 1 |
-| Domestic | RBA | 71 |
-| Macro | OECD | 1,464 |
-| Macro | World Bank | 28,377 |
-| Macro | IMF | 132 |
-| Macro | UN Comtrade | 1 |
+| Provider | Datasets |
+| --- | ---: |
+| ABS | 1,221 |
+| DCCEEW | 1 |
+| RBA | 71 |
+| OECD | 1,464 |
+| World Bank | 28,377 |
+| IMF | 132 |
+| UN Comtrade | 1 |
 
 This product is heavily vibecoded and tested by outcomes rather than code review. It does not work perfectly every time, but it works well most of the time.
 
@@ -42,17 +42,16 @@ OPENAI_API_KEY=your_key_here
 
 The repo can be used directly as MCP, not just through the hosted app.
 
-- Domestic MCP server: `npm run mcp:domestic`
-- Macro MCP server: `python -m backend.app.macro_mcp_server`
+- Unified MCP server: `python -m backend.app.unified_mcp_server`
 
-If your local MCP client supports a project-scoped `.mcp.json`, the repo includes one at the root with both servers already defined.
+If your local MCP client supports a project-scoped `.mcp.json`, the repo includes one at the root with the unified server already defined.
 
 Some catalog and metadata assets are built snapshots and need to be refreshed manually when needed:
 
-- Refresh the macro catalog:
+- Refresh the unified catalog and FTS index:
 
 ```bash
-python3 scripts/build_macro_catalog.py
+python3 scripts/build_unified_catalog.py
 ```
 
 - Refresh the local UN Comtrade metadata bundle:
@@ -79,6 +78,14 @@ Later runs:
 ```powershell
 .\start-dev.ps1 -SkipInstall
 ```
+
+If you see `'vite' is not recognized as an internal or external command`, your `frontend/node_modules` was likely installed from WSL/Linux rather than from Windows. Run:
+
+```powershell
+.\start-dev.ps1
+```
+
+That reinstalls the frontend dependencies with the Windows `vite.cmd` shim that `npm run dev` expects.
 
 If you want backend auto-reload:
 

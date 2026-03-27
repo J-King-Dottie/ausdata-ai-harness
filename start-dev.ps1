@@ -110,6 +110,27 @@ function Test-WindowsVenvConfig {
     return $true
 }
 
+function Test-WindowsNodeInstall {
+    param(
+        [string]$PackageRoot,
+        [string[]]$Commands
+    )
+
+    $binRoot = Join-Path $PackageRoot "node_modules\.bin"
+    if (-not (Test-Path -Path $binRoot)) {
+        return $false
+    }
+
+    foreach ($commandName in $Commands) {
+        $cmdShim = Join-Path $binRoot "$commandName.cmd"
+        if (-not (Test-Path -Path $cmdShim)) {
+            return $false
+        }
+    }
+
+    return $true
+}
+
 function Resolve-BasePython {
     param(
         [string]$VenvRoot
@@ -241,9 +262,7 @@ function Get-WatchSignature {
     $roots = @(
         (Join-Path $RepoRoot "backend"),
         $EnvFilePath,
-        (Join-Path $RepoRoot "SOUL.md"),
-        (Join-Path $RepoRoot "AGENTS.md"),
-        (Join-Path $RepoRoot "build")
+        (Join-Path $RepoRoot "AGENTS.md")
     )
 
     $latestTicks = 0L
@@ -379,16 +398,23 @@ $NpmExe = Resolve-CommandPath @(
     "C:\Program Files (x86)\nodejs\npm.cmd"
 )
 
-if (-not $SkipInstall) {
-    Write-Host "Installing backend and frontend dependencies..."
-    & $NpmExe install
-    if ($LASTEXITCODE -ne 0) { throw "npm install failed in repo root." }
+$needsFrontendNodeInstall = -not (Test-WindowsNodeInstall -PackageRoot $FrontendRoot -Commands @("vite", "tsc"))
 
-    & $NpmExe install --prefix $FrontendRoot
-    if ($LASTEXITCODE -ne 0) { throw "npm install failed in frontend." }
+if ($SkipInstall -and $needsFrontendNodeInstall) {
+    Write-Host "Detected npm dependencies without Windows command shims. Reinstalling the affected packages for Windows."
+}
 
-    & $PythonExe -m pip install -r (Join-Path $RepoRoot "backend\requirements.txt")
-    if ($LASTEXITCODE -ne 0) { throw "pip install failed." }
+if (-not $SkipInstall -or $needsFrontendNodeInstall) {
+    Write-Host "Installing frontend and backend dependencies..."
+    if (-not $SkipInstall -or $needsFrontendNodeInstall) {
+        & $NpmExe install --prefix $FrontendRoot
+        if ($LASTEXITCODE -ne 0) { throw "npm install failed in frontend." }
+    }
+
+    if (-not $SkipInstall) {
+        & $PythonExe -m pip install -r (Join-Path $RepoRoot "backend\requirements.txt")
+        if ($LASTEXITCODE -ne 0) { throw "pip install failed." }
+    }
 }
 
 Clear-ListeningPort -Port 5000

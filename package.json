@@ -1,34 +1,14 @@
 {
   "name": "abs-mcp-server",
   "version": "0.1.0",
-  "description": "ABS Data API MCP Server",
+  "description": "Nisaba unified MCP server",
   "private": true,
   "type": "module",
-  "bin": {
-    "abs-mcp-server": "./build/index.js"
-  },
-  "files": [
-    "build"
-  ],
   "scripts": {
-    "build": "tsc && node -e \"const fs=require('fs');['build/index.js','build/mcpBridge.js'].forEach((p)=>{if(fs.existsSync(p)){fs.chmodSync(p, '755');}})\"",
+    "build": "npm --prefix frontend run build",
     "build:frontend": "npm --prefix frontend run build",
-    "build:all": "npm run build && npm run build:frontend",
-    "prepare": "npm run build",
-    "watch": "tsc --watch",
-    "inspector": "npx @modelcontextprotocol/inspector build/index.js",
-    "start": "node build/index.js",
-    "mcp:domestic": "node build/index.js",
-    "mcp:macro": "python -m backend.app.macro_mcp_server"
-  },
-  "dependencies": {
-    "@modelcontextprotocol/sdk": "0.6.0",
-    "axios": "^1.6.2",
-    "fast-xml-parser": "^4.3.2",
-    "winston": "^3.11.0"
-  },
-  "devDependencies": {
-    "@types/node": "^20.10.4",
-    "typescript": "^5.3.3"
+    "build:all": "npm run build",
+    "start": "python -m backend.app.unified_mcp_server",
+    "mcp:nisaba": "python -m backend.app.unified_mcp_server"
   }
 }

@@ -237,7 +237,8 @@ def _build_run_cost_payload(
 def _system_instructions() -> str:
     return """
 You are Nisaba, an AI economic analyst for Australian public data with supporting global macro context.
-You should feel like a precise economic scribe: measured, precise, calm, intellectually honest, economical with words, and quietly confident.
+You should feel like a careful keeper of the ledger: ancient in temperament, orderly, exact, grounded in practical record-keeping, and more scribe than oracle.
+Write in a measured, precise, calm voice. Be intellectually honest, economical with words, and quietly confident.
 Prefer verified data over guesses, structure over flourish, plain explanation over hype, clean charts over decorative ones, and evidence-led judgment over forced certainty.
 Economic statistics measure specific things in specific ways. Name what the data shows. Name what it does not show. If the data does not support a conclusion, say so clearly.
 
@@ -246,21 +247,24 @@ Tooling:
 - Use `report_progress` frequently, including after most meaningful steps and whenever the plan materially changes.
 - Keep each progress update to one short plain-English sentence saying what you just did and what you will do next, for example: `Checked the shortlist. Next I’m opening the metadata.`
 - Do not reveal chain-of-thought or hidden reasoning. Keep updates operational and factual.
-- Use the domestic MCP server for Australian domestic data, including ABS and curated custom Australian sources.
-- Use the macro MCP server for global macro and trade data via the `macro_search_catalog`, `macro_get_metadata`, and `macro_retrieve` tools.
+- Use the integrated Nisaba MCP server for discovery and retrieval across Australian domestic and global macro sources.
 - Retrieval tools save raw data as server-side artifacts and return compact manifests.
-- Domestic MCP provides `inspect_artifact` and `narrow_artifact`.
-- Macro MCP provides `macro_inspect_artifact` and `macro_narrow_artifact`.
+- The integrated MCP provides `search_catalog`, `get_metadata`, `retrieve`, `inspect_artifact`, and `narrow_artifact`.
 - If narrowing returns `analysis_file`, open that file in the python tool and use it for calculations, comparisons, and chart preparation.
 - For charting or any answer that depends on exact numeric comparisons, use the python tool on the best available analysis-ready artifact before writing the final response.
 
 Retrieval rules:
 - Follow the MCP server instructions and tool descriptions for discovery, retrieval, inspection, and narrowing. Do not invent dataset ids, provider ids, filters, anchor codes, product codes, or data keys.
 - Once MCP retrieval succeeds, stay on the MCP/artifact path.
-- Do not analyze large raw retrieval artifacts directly by default. Inspect first, use the size information to decide whether the artifact can go directly to python or needs narrowing, and use it directly if it is already narrow enough for the user's request.
+- Do not analyze large raw retrieval artifacts directly by default. Inspect first, use the size information and narrowing guidance to decide whether the artifact can go directly to python or needs narrowing, and use it directly only if it is already narrow enough for the user's request.
 - If an artifact is too large for direct python handoff, narrow it enough to get under the handoff limit.
 - When data contains multiple frequencies, countries, or series variants, narrow to the exact comparable slice before answering.
 - For comparisons over time, use one comparable definition and one frequency before charting.
+- For ABS and other domestic time-series artifacts, prefer narrowing before python analysis whenever multiple variants, categories, or broad slices remain.
+- For ABS and other official statistical time series, prefer annual over quarterly or monthly when the user asks a broad trend and does not need high-frequency detail.
+- For ABS and other official statistical time series, prefer trend over seasonally adjusted, and prefer seasonally adjusted over original, unless the user clearly asks for something else or only another variant is available.
+- If more than one defensible slice remains and the choice would materially change the answer, stop and ask the user one short clarification instead of guessing.
+- Use the python tool only after narrowing to the minimum slice needed for the user’s question, unless inspect_artifact shows the artifact is already analysis-ready.
 - For matrix, workbook, supply-use, or input-output style datasets, retrieve the broad published table first, inspect the returned structure, and do not use MCP narrowing as the default next step.
 - For supply-use, input-output, and other matrix-style tables, prefer using the full retrieved table directly after inspect when it fits the python handoff limit.
 - If a matrix-style artifact is too large, narrow to one correct full matrix or one correct metric/anchor, not to partial rows or columns inside that matrix.
@@ -281,6 +285,8 @@ Response rules:
 - Prefer charts by default whenever the retrieved data can reasonably be visualized.
 - Unless the user says otherwise, prefer a chart over a table.
 - Do not include both a table and a chart for the same data unless the user explicitly asks for both or a table is clearly necessary for precision.
+- When presenting structured options, comparisons, candidate shortlists, assumptions, or compact factual summaries, prefer a small markdown table over a bullet list when the content fits naturally into rows and columns.
+- Prefer bullet lists only for procedural steps, brief recommendations, or cases where a table would be awkward or heavier than the content needs.
 - For trends over time, comparisons across categories, or shares/compositions, default to a chart if the data supports it.
 - When a chart is used, treat it as the main output: chart first, then a very short direct read of what the data shows, then broader interpretation only if genuinely helpful.
 - Do not force the answer into rigid titled sections like `Chart`, `Analysis`, or `Interpretation`.
@@ -411,53 +417,25 @@ def _build_agent(code_container_id: str) -> Agent[Any]:
     )
 
 
-def _domestic_mcp_server_for_conversation(conversation_id: str, code_container_id: str) -> MCPServerStdio:
+def _integrated_mcp_server_for_conversation(conversation_id: str, code_container_id: str) -> MCPServerStdio:
     return MCPServerStdio(
         params={
-            "command": settings.node_binary,
-            "args": [str(PROJECT_ROOT / "build" / "index.js")],
+            "command": settings.python_binary,
+            "args": ["-m", "backend.app.unified_mcp_server"],
             "cwd": str(PROJECT_ROOT),
             "env": {
                 "NISABA_CONVERSATION_ID": conversation_id,
                 "NISABA_RUNTIME_DIR": str(settings.runtime_dir),
                 "NISABA_CODE_CONTAINER_ID": code_container_id,
-                "NISABA_PYTHON_BINARY": settings.python_binary,
+                "NODE_BINARY": settings.node_binary,
                 "OPENAI_API_KEY": settings.openai_api_key,
             },
         },
-        name="domestic",
+        name="nisaba",
         client_session_timeout_seconds=max(120, settings.macro_timeout_seconds),
         cache_tools_list=True,
         tool_filter=create_static_tool_filter(
             allowed_tool_names=["search_catalog", "get_metadata", "retrieve", "inspect_artifact", "narrow_artifact"]
-        ),
-    )
-
-
-def _macro_mcp_server_for_conversation(conversation_id: str, code_container_id: str) -> MCPServerStdio:
-    return MCPServerStdio(
-        params={
-            "command": settings.python_binary,
-            "args": ["-m", "backend.app.macro_mcp_server"],
-            "cwd": str(PROJECT_ROOT),
-            "env": {
-                "NISABA_CONVERSATION_ID": conversation_id,
-                "NISABA_RUNTIME_DIR": str(settings.runtime_dir),
-                "NISABA_CODE_CONTAINER_ID": code_container_id,
-                "OPENAI_API_KEY": settings.openai_api_key,
-            },
-        },
-        name="macro",
-        client_session_timeout_seconds=max(60, settings.macro_timeout_seconds),
-        cache_tools_list=True,
-        tool_filter=create_static_tool_filter(
-            allowed_tool_names=[
-                "macro_search_catalog",
-                "macro_get_metadata",
-                "macro_retrieve",
-                "macro_inspect_artifact",
-                "macro_narrow_artifact",
-            ]
         ),
     )
 
@@ -1532,9 +1510,8 @@ async def _generate_response_async(
     )
 
     agent = _build_agent(code_container_id)
-    domestic_server = _domestic_mcp_server_for_conversation(conversation_id, code_container_id)
-    macro_server = _macro_mcp_server_for_conversation(conversation_id, code_container_id)
-    agent.mcp_servers = [domestic_server, macro_server]
+    integrated_server = _integrated_mcp_server_for_conversation(conversation_id, code_container_id)
+    agent.mcp_servers = [integrated_server]
     runtime_context = AgentRuntimeContext(
         conversation_id=conversation_id,
         store=store,
@@ -1545,7 +1522,7 @@ async def _generate_response_async(
     _ensure_not_cancelled(conversation_id, cancel_event, "before_run")
 
     try:
-        async with domestic_server, macro_server:
+        async with integrated_server:
             result = Runner.run_streamed(
                 agent,
                 user_input,

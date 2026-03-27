@@ -1,17 +1,10 @@
 {
   "mcpServers": {
-    "nisaba-domestic": {
-      "command": "node",
-      "args": [
-        "build/index.js"
-      ],
-      "cwd": "."
-    },
-    "nisaba-macro": {
-      "command": "python",
+    "nisaba": {
+      "command": "./.venv/Scripts/python.exe",
       "args": [
         "-m",
-        "backend.app.macro_mcp_server"
+        "backend.app.unified_mcp_server"
       ],
       "cwd": "."
     }

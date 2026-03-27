@@ -14,20 +14,13 @@ RUN apt-get update \
 
 RUN python3 -m venv "$VIRTUAL_ENV"
 
-COPY package.json package-lock.json tsconfig.json ./
-COPY src ./src
-
-RUN npm ci \
-    && npm run build \
-    && npm prune --omit=dev
-
 COPY backend ./backend
-COPY SOUL.md SOUL.md
 COPY ABS_DataAPI.openapi.yaml ABS_DataAPI.openapi.yaml
 COPY ABS_DATAFLOWS_FULL.json ABS_DATAFLOWS_FULL.json
-COPY CUSTOM_AUS_DATAFLOWS.json CUSTOM_AUS_DATAFLOWS.json
-COPY MACRO_CATALOG_FULL.json MACRO_CATALOG_FULL.json
+COPY MANUAL_SOURCE_DEFINITIONS.json MANUAL_SOURCE_DEFINITIONS.json
 COPY COMTRADE_METADATA.json COMTRADE_METADATA.json
+COPY UNIFIED_CATALOG_FULL.json UNIFIED_CATALOG_FULL.json
+COPY UNIFIED_CATALOG_FTS.sqlite3 UNIFIED_CATALOG_FTS.sqlite3
 COPY scripts ./scripts
 COPY run.py run.py
 
