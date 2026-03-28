@@ -118,15 +118,18 @@ def get_unified_source_record(dataset_id: str) -> Optional[Dict[str, Any]]:
 
 
 def _row_to_entry(row: sqlite3.Row) -> Dict[str, Any]:
-    return {
-        "provider": str(row["provider"] or "").strip(),
-        "datasetId": str(row["dataset_id"] or "").strip(),
-        "title": str(row["title"] or "").strip(),
-        "description": str(row["description"] or "").strip(),
-        "searchText": str(row["search_text"] or "").strip(),
-        "sourceUrl": str(row["source_url"] or "").strip(),
-        "requiresMetadataBeforeRetrieval": bool(int(row["requires_metadata_before_retrieval"] or 0)),
-    }
+    dataset_id = str(row["dataset_id"] or "").strip()
+    record = dict(get_unified_catalog_entry(dataset_id) or {})
+    record["provider"] = str(row["provider"] or record.get("provider") or "").strip()
+    record["datasetId"] = dataset_id
+    record["title"] = str(row["title"] or record.get("title") or "").strip()
+    record["description"] = str(row["description"] or record.get("description") or "").strip()
+    record["searchText"] = str(row["search_text"] or record.get("searchText") or "").strip()
+    record["sourceUrl"] = str(row["source_url"] or record.get("sourceUrl") or "").strip()
+    record["requiresMetadataBeforeRetrieval"] = bool(
+        int(row["requires_metadata_before_retrieval"] or 0)
+    )
+    return record
 
 
 def _execute_match_search(
@@ -193,6 +196,15 @@ def search_unified_catalog(query: str, limit: int = 40, *, force_refresh: bool =
                         )[: max(0, clean_limit - len(rows))]
                     )
         entries = [_row_to_entry(row) for row in rows]
+        # FTS still selects the candidate pool, but the returned shortlist is exposed
+        # to agents as an unranked stable set rather than a relevance-ordered list.
+        entries.sort(
+            key=lambda item: (
+                str(item.get("provider") or "").lower(),
+                str(item.get("title") or "").lower(),
+                str(item.get("datasetId") or "").lower(),
+            )
+        )
         return {
             "query": clean_query,
             "total": len(entries),

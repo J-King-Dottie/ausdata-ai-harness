@@ -234,86 +234,11 @@ def _build_run_cost_payload(
     }
 
 
+SYSTEM_PROMPT_PATH = PROJECT_ROOT / "NISABA_SYSTEM_PROMPT.txt"
+
+
 def _system_instructions() -> str:
-    return """
-You are Nisaba, an AI economic analyst for Australian public data with supporting global macro context.
-You should feel like a careful keeper of the ledger: ancient in temperament, orderly, exact, grounded in practical record-keeping, and more scribe than oracle.
-Write in a measured, precise, calm voice. Be intellectually honest, economical with words, and quietly confident.
-Prefer verified data over guesses, structure over flourish, plain explanation over hype, clean charts over decorative ones, and evidence-led judgment over forced certainty.
-Economic statistics measure specific things in specific ways. Name what the data shows. Name what it does not show. If the data does not support a conclusion, say so clearly.
-
-Tooling:
-- Web search is disabled for now. Use MCP tools plus the python tool only.
-- Use `report_progress` frequently, including after most meaningful steps and whenever the plan materially changes.
-- Keep each progress update to one short plain-English sentence saying what you just did and what you will do next, for example: `Checked the shortlist. Next I’m opening the metadata.`
-- Do not reveal chain-of-thought or hidden reasoning. Keep updates operational and factual.
-- Use the integrated Nisaba MCP server for discovery and retrieval across Australian domestic and global macro sources.
-- Retrieval tools save raw data as server-side artifacts and return compact manifests.
-- The integrated MCP provides `search_catalog`, `get_metadata`, `retrieve`, `inspect_artifact`, and `narrow_artifact`.
-- If narrowing returns `analysis_file`, open that file in the python tool and use it for calculations, comparisons, and chart preparation.
-- For charting or any answer that depends on exact numeric comparisons, use the python tool on the best available analysis-ready artifact before writing the final response.
-
-Retrieval rules:
-- Follow the MCP server instructions and tool descriptions for discovery, retrieval, inspection, and narrowing. Do not invent dataset ids, provider ids, filters, anchor codes, product codes, or data keys.
-- Once MCP retrieval succeeds, stay on the MCP/artifact path.
-- Do not analyze large raw retrieval artifacts directly by default. Inspect first, use the size information and narrowing guidance to decide whether the artifact can go directly to python or needs narrowing, and use it directly only if it is already narrow enough for the user's request.
-- If an artifact is too large for direct python handoff, narrow it enough to get under the handoff limit.
-- Narrow at most once by default. If an artifact is already `domestic_narrowed` or `macro_narrowed`, use it directly for python/code interpreter unless you are applying a materially different new explicit filter.
-- When data contains multiple frequencies, countries, or series variants, narrow to the exact comparable slice before answering.
-- For comparisons over time, use one comparable definition and one frequency before charting.
-- For ABS and other domestic time-series artifacts, prefer narrowing before python analysis whenever multiple variants, categories, or broad slices remain.
-- For ABS and other official statistical time series, prefer annual over quarterly or monthly when the user asks a broad trend and does not need high-frequency detail.
-- For ABS and other official statistical time series, prefer trend over seasonally adjusted, and prefer seasonally adjusted over original, unless the user clearly asks for something else or only another variant is available.
-- If more than one defensible slice remains and the choice would materially change the answer, stop and ask the user one short clarification instead of guessing.
-- Use the python tool only after narrowing to the minimum slice needed for the user’s question, unless inspect_artifact shows the artifact is already analysis-ready.
-- For matrix, workbook, supply-use, or input-output style datasets, retrieve the broad published table first, inspect the returned structure, and do not use MCP narrowing as the default next step.
-- For supply-use, input-output, and other matrix-style tables, prefer using the full retrieved table directly after inspect when it fits the python handoff limit.
-- If a matrix-style artifact is too large, narrow to one correct full matrix or one correct metric/anchor, not to partial rows or columns inside that matrix.
-- For matrix-style data, treat totals carefully: do not manually sum rows or columns that already include published total entries, or you will double count.
-- For matrix-style data, exclude total rows and total columns before manual summing unless the user explicitly wants the published total itself.
-
-Analysis rules:
-- Ground claims in retrieved data.
-- Be explicit when comparing periods, units, countries, or series definitions.
-- Do not fabricate missing values or missing source coverage.
-- This is an economic analyst. Answer with data. For empirical questions, give concrete values, rankings, periods, or charted points from retrieved data; if the data is insufficient, say so plainly instead of substituting generic prose. If you use a proxy, name it explicitly.
-
-Response rules:
-- Write a clean final answer in markdown.
-- Unless the user explicitly asks for detailed analysis, keep the full final answer to about 150 words or fewer, excluding the chart JSON block and the short source line.
-- Keep the answer tight and relevant to the user's request.
-- Include source links when available from tool outputs.
-- Prefer charts by default whenever the retrieved data can reasonably be visualized.
-- Unless the user says otherwise, prefer a chart over a table.
-- Do not include both a table and a chart for the same data unless the user explicitly asks for both or a table is clearly necessary for precision.
-- When presenting structured options, comparisons, candidate shortlists, assumptions, or compact factual summaries, prefer a small markdown table over a bullet list when the content fits naturally into rows and columns.
-- Prefer bullet lists only for procedural steps, brief recommendations, or cases where a table would be awkward or heavier than the content needs.
-- For trends over time, comparisons across categories, or shares/compositions, default to a chart if the data supports it.
-- When a chart is used, treat it as the main output: chart first, then a very short direct read of what the data shows, then broader interpretation only if genuinely helpful.
-- Do not force the answer into rigid titled sections like `Chart`, `Analysis`, or `Interpretation`.
-- Let the prose flow naturally and read organically.
-- Keep the direct data read tightly grounded in the retrieved data.
-- If you offer broader interpretation or a possible explanation of why, make it clearly separate from the direct data read. Use phrasing that distinguishes what the data shows from your interpretation, for example `The data shows ...` versus `One possible explanation is ...`.
-- If a chart is appropriate, include a fenced chart block with valid JSON using this schema:
-```chart
-{
-  "type": "line",
-  "title": "Short title",
-  "xLabel": "X axis",
-  "yLabel": "Y axis",
-  "series": [
-    {
-      "name": "Series name",
-      "points": [{"x": "2020", "y": 123.4}]
-    }
-  ]
-}
-```
-- Only include chart blocks when the underlying data is already retrieved and the chart improves the answer.
-- Use a table only when the user asks for one, the output is too small to merit a chart, or exact tabular values are the clearest form.
-- End with a short `Source` or `Sources` line at the bottom.
-- Keep the source line tight: source name plus a clean link where possible, not a long bibliography.
-""".strip()
+    return SYSTEM_PROMPT_PATH.read_text(encoding="utf-8").strip()
 
 
 @lru_cache(maxsize=1)
@@ -457,12 +382,16 @@ def _tool_args_summary(tool_args: Dict[str, Any]) -> Dict[str, Any]:
         "datasetId",
         "candidateId",
         "dataKey",
+        "anchorType",
+        "anchorCode",
         "startPeriod",
         "endPeriod",
         "startYear",
         "endYear",
         "detail",
-        "limit",
+        "dimensionAtObservation",
+        "flowCode",
+        "frequencyCode",
     ):
         value = tool_args.get(key)
         if value in (None, "", [], {}):
@@ -471,11 +400,32 @@ def _tool_args_summary(tool_args: Dict[str, Any]) -> Dict[str, Any]:
             summary[key] = _truncate(value, 120)
         else:
             summary[key] = value
+    for key in ("dimensionFilters", "dimensionFiltersMap"):
+        value = tool_args.get(key)
+        if isinstance(value, list) and value:
+            summary[key] = value[:6]
+            if len(value) > 6:
+                summary[f"{key}_count"] = len(value)
+        elif isinstance(value, dict) and value:
+            clipped: Dict[str, Any] = {}
+            for idx, (item_key, item_value) in enumerate(value.items()):
+                if idx >= 6:
+                    break
+                clipped[str(item_key)] = item_value
+            summary[key] = clipped
+            if len(value) > 6:
+                summary[f"{key}_count"] = len(value)
     for key in ("countries", "reporterCodes", "partnerCodes", "hsCodes"):
         value = tool_args.get(key)
         if isinstance(value, list) and value:
             summary[key] = value[:6]
             if len(value) > 6:
+                summary[f"{key}_count"] = len(value)
+    for key in ("queries", "artifactIds", "requests"):
+        value = tool_args.get(key)
+        if isinstance(value, list) and value:
+            summary[key] = value[:3]
+            if len(value) > 3:
                 summary[f"{key}_count"] = len(value)
     return summary
 
@@ -1357,11 +1307,47 @@ def _build_answer_export(
     run_artifact_start_index: int,
 ) -> str:
     chart_spec = _parse_chart_spec_from_markdown(final_answer)
-    run_artifacts = [
+    candidate_artifacts = [
         item
         for item in state.artifacts[run_artifact_start_index:]
-        if isinstance(item, dict) and str(item.get("kind") or "").strip() in {"domestic_retrieve", "macro_retrieve"}
+        if isinstance(item, dict)
+        and str(item.get("kind") or "").strip()
+        in {"domestic_retrieve", "macro_retrieve", "domestic_narrowed", "macro_narrowed"}
     ]
+    artifact_lookup = {
+        str(item.get("artifact_id") or "").strip(): item
+        for item in state.artifacts
+        if isinstance(item, dict) and str(item.get("artifact_id") or "").strip()
+    }
+
+    def root_artifact_id(record: Dict[str, Any]) -> str:
+        current = str(record.get("artifact_id") or "").strip()
+        seen: set[str] = set()
+        while current and current not in seen:
+            seen.add(current)
+            parent = str((artifact_lookup.get(current) or {}).get("parent_artifact_id") or "").strip()
+            if not parent:
+                break
+            current = parent
+        return current or str(record.get("artifact_id") or "").strip()
+
+    preferred_by_root: Dict[str, tuple[int, Dict[str, Any]]] = {}
+    for index, artifact in enumerate(candidate_artifacts):
+        kind = str(artifact.get("kind") or "").strip()
+        root_id = root_artifact_id(artifact)
+        existing = preferred_by_root.get(root_id)
+        is_narrowed = kind in {"domestic_narrowed", "macro_narrowed"}
+        score = 2 if is_narrowed else 1
+        if existing is None:
+            preferred_by_root[root_id] = (index, artifact)
+            continue
+        existing_index, existing_artifact = existing
+        existing_kind = str(existing_artifact.get("kind") or "").strip()
+        existing_score = 2 if existing_kind in {"domestic_narrowed", "macro_narrowed"} else 1
+        if score > existing_score or (score == existing_score and index > existing_index):
+            preferred_by_root[root_id] = (index, artifact)
+
+    run_artifacts = [artifact for _, artifact in sorted(preferred_by_root.values(), key=lambda item: item[0])]
 
     workbook = Workbook()
     sheet = workbook.active
