@@ -1529,7 +1529,8 @@ def inspect_artifact(artifactId: str = "", artifactIds: Optional[List[str]] = No
                             "This domestic artifact is still broad. Before python analysis, use narrow_artifact to isolate the minimum comparable slice needed. "
                             "For time-series questions, prefer a published Annual series over Quarterly or Monthly when the user did not ask for high-frequency detail, "
                             "but if Annual is materially older than a comparable Quarterly or Monthly series, use the more current slice and annualise it when that is statistically sensible. "
-                            "and prefer Trend over Seasonally Adjusted over Original unless the user clearly wants another variant."
+                            "Prefer the most recent comparable published slice, and unless the user asks for the full history, prefer a recent window rather than dragging the entire time span into analysis. "
+                            "Prefer Trend over Seasonally Adjusted over Original unless the user clearly wants another variant."
                         ),
                     }
                 )

@@ -35,6 +35,7 @@ Retrieval rules:
 - Narrow only when needed, and usually only once. If an artifact is already narrowed, use it directly unless you need a materially different explicit filter.
 - Use the tool's documented canonical filter shape for narrowing.
 - Before charting or comparing, get to one comparable slice: align frequency, seasonal treatment, geography, and series definition.
+- Unless the user asks for the full history, do not default to the entire time span when a long series is available. For broad time-series answers, prefer a recent window of roughly 10 to 20 years when that still answers the question cleanly.
 - If an artifact is too large for direct python handoff, narrow it enough to get under the handoff limit.
 - For ABS and other domestic time-series artifacts, prefer narrowing before python analysis whenever multiple variants, categories, or broad slices remain.
 - For ABS and other official statistical time series, prefer a published annual series over quarterly or monthly when the user asks a broad trend and does not need high-frequency detail.
